@@ -4,7 +4,11 @@ import type { Route } from "./+types/landing";
 export function meta(_: Route.MetaArgs) {
 	return [
 		{ title: "Pickleball - Connect, Find Courts, Find Games" },
-		{ name: "description", content: "The pickleball community. Chat, find courts, and join games and sessions—all in one place." },
+		{
+			name: "description",
+			content:
+				"The pickleball community. Chat, find courts, and join games and sessions—all in one place.",
+		},
 	];
 }
 
@@ -31,7 +35,11 @@ export default function Landing() {
 				</div>
 			</header>
 
-			<main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-16 sm:py-24 text-center">
+			<main
+				id="main-content"
+				className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-16 sm:py-24 text-center"
+				tabIndex={-1}
+			>
 				<h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-gray-900 dark:text-white tracking-tight max-w-3xl leading-tight">
 					Connect. Find courts.{" "}
 					<span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
@@ -39,7 +47,8 @@ export default function Landing() {
 					</span>
 				</h1>
 				<p className="mt-6 text-lg sm:text-xl text-gray-600 dark:text-gray-400 max-w-2xl">
-					Join the pickleball community. Chat with players, discover courts, and join games and sessions—all in one place.
+					Join the pickleball community. Chat with players, discover courts, and join games and
+					sessions—all in one place.
 				</p>
 				<div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
 					<Link
@@ -56,7 +65,8 @@ export default function Landing() {
 					</Link>
 				</div>
 				<p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-					Try demo logs you in as Alex so you can explore the feed, courts, sessions, tournaments, lessons, and more.
+					Try demo logs you in as Alex so you can explore the feed, courts, sessions, tournaments,
+					lessons, and more.
 				</p>
 
 				{/* Feature pills */}
@@ -88,9 +98,15 @@ export default function Landing() {
 						Pickleball
 					</span>
 					<div className="flex gap-6">
-						<a href="/#privacy" className="hover:text-emerald-600 dark:hover:text-emerald-400">Privacy</a>
-						<a href="/#terms" className="hover:text-emerald-600 dark:hover:text-emerald-400">Terms</a>
-						<a href="/#contact" className="hover:text-emerald-600 dark:hover:text-emerald-400">Contact</a>
+						<a href="/#privacy" className="hover:text-emerald-600 dark:hover:text-emerald-400">
+							Privacy
+						</a>
+						<a href="/#terms" className="hover:text-emerald-600 dark:hover:text-emerald-400">
+							Terms
+						</a>
+						<a href="/#contact" className="hover:text-emerald-600 dark:hover:text-emerald-400">
+							Contact
+						</a>
 					</div>
 				</div>
 			</footer>

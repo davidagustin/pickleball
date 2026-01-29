@@ -211,25 +211,32 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
 							<span>Search</span>
 						</div>
 					</div>
-					<nav className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide shrink-0">
-						{NAV_LINKS.map(({ to, label, icon: Icon }) => {
-							const active = isActive(to);
-							return (
-								<Link
-									key={to}
-									to={to}
-									className={`flex flex-col sm:flex-row items-center gap-0.5 sm:gap-2 px-2 sm:px-3 py-2 rounded-lg min-w-[48px] sm:min-w-[72px] transition-colors shrink-0 ${
-										active
-											? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
-											: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-									}`}
-									title={label}
-								>
-									<Icon className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" />
-									<span className="hidden lg:inline text-sm font-medium truncate">{label}</span>
-								</Link>
-							);
-						})}
+					<nav
+						className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide shrink-0"
+						aria-label="Primary"
+					>
+						<ul className="flex items-center gap-0.5 sm:gap-1 list-none m-0 p-0">
+							{NAV_LINKS.map(({ to, label, icon: Icon }) => {
+								const active = isActive(to);
+								return (
+									<li key={to} className="flex shrink-0">
+										<Link
+											to={to}
+											className={`flex flex-col sm:flex-row items-center gap-0.5 sm:gap-2 px-2 sm:px-3 py-2 rounded-lg min-w-[48px] sm:min-w-[72px] transition-colors ${
+												active
+													? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
+													: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+											}`}
+											title={label}
+											aria-current={active ? "page" : undefined}
+										>
+											<Icon className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" aria-hidden />
+											<span className="hidden lg:inline text-sm font-medium truncate">{label}</span>
+										</Link>
+									</li>
+								);
+							})}
+						</ul>
 					</nav>
 				</div>
 				{/* Right: user menu */}
@@ -256,6 +263,7 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
 								<button
 									type="submit"
 									className="px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+									aria-label="Log out"
 								>
 									Log out
 								</button>
@@ -297,29 +305,33 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
 						<span className="font-medium text-gray-900 dark:text-white truncate">{user.name}</span>
 					</Link>
 				) : null}
-				<nav className="mt-2 space-y-0.5">
-					{SIDEBAR_LINKS.map(({ to, label, icon: Icon }) => {
-						const active = isActive(to);
-						return (
-							<Link
-								key={to}
-								to={to}
-								className={`flex items-center gap-3 px-3 py-2.5 mx-2 rounded-lg transition-colors ${
-									active
-										? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
-										: "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-								}`}
-							>
-								<Icon className="w-6 h-6 shrink-0" />
-								<span className="font-medium">{label}</span>
-							</Link>
-						);
-					})}
+				<nav className="mt-2 space-y-0.5" aria-label="App menu">
+					<ul className="space-y-0.5 list-none m-0 p-0">
+						{SIDEBAR_LINKS.map(({ to, label, icon: Icon }) => {
+							const active = isActive(to);
+							return (
+								<li key={to}>
+									<Link
+										to={to}
+										className={`flex items-center gap-3 px-3 py-2.5 mx-2 rounded-lg transition-colors ${
+											active
+												? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+												: "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+										}`}
+										aria-current={active ? "page" : undefined}
+									>
+										<Icon className="w-6 h-6 shrink-0" aria-hidden />
+										<span className="font-medium">{label}</span>
+									</Link>
+								</li>
+							);
+						})}
+					</ul>
 				</nav>
 			</aside>
 
-			{/* Main content — offset by top bar and optional sidebar */}
-			<main className="flex-1 pt-14 lg:pl-60 min-h-screen">
+			{/* Main content — skip target for accessibility */}
+			<main id="main-content" className="flex-1 pt-14 lg:pl-60 min-h-screen" tabIndex={-1}>
 				<div className="p-4 sm:p-6">{children}</div>
 			</main>
 		</div>

@@ -19,7 +19,7 @@ export const links: Route.LinksFunction = () => [
 	},
 	{
 		rel: "stylesheet",
-		href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap",
+		href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap",
 	},
 ];
 
@@ -33,6 +33,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 				<Links />
 			</head>
 			<body>
+				<a href="#main-content" className="skip-link">
+					Skip to main content
+				</a>
 				{children}
 				<ScrollRestoration />
 				<Scripts />
@@ -53,23 +56,27 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 	if (isRouteErrorResponse(error)) {
 		message = error.status === 404 ? "404" : "Error";
 		details =
-			error.status === 404
-				? "The requested page could not be found."
-				: error.statusText || details;
+			error.status === 404 ? "The requested page could not be found." : error.statusText || details;
 	} else if (import.meta.env.DEV && error && error instanceof Error) {
 		details = error.message;
 		stack = error.stack;
 	}
 
 	return (
-		<main className="pt-16 p-4 container mx-auto">
-			<h1>{message}</h1>
-			<p>{details}</p>
-			{stack && (
-				<pre className="w-full p-4 overflow-x-auto">
-					<code>{stack}</code>
-				</pre>
-			)}
+		<main
+			id="main-content"
+			className="min-h-screen pt-16 p-4 sm:p-6 container mx-auto max-w-2xl"
+			tabIndex={-1}
+		>
+			<div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 sm:p-8 shadow-sm">
+				<h1 className="text-2xl font-bold text-gray-900 dark:text-white">{message}</h1>
+				<p className="mt-2 text-gray-600 dark:text-gray-400">{details}</p>
+				{stack && (
+					<pre className="mt-4 w-full p-4 overflow-x-auto rounded-lg bg-gray-100 dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300">
+						<code>{stack}</code>
+					</pre>
+				)}
+			</div>
 		</main>
 	);
 }

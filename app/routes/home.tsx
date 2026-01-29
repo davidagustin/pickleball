@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { AppShell } from "~/components/AppShell";
 import {
@@ -321,16 +321,31 @@ export default function Home() {
 	const today = new Date().toISOString().slice(0, 10);
 	const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
+	useEffect(() => {
+		if (!showLoginModal) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape") setShowLoginModal(false);
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [showLoginModal]);
+
 	return (
 		<AppShell user={user}>
 			{/* Login Modal — demo: any email/password creates or reuses a demo account */}
 			{showLoginModal && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="login-dialog-title"
+				>
 					<div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-8 relative">
 						<button
 							type="button"
 							onClick={() => setShowLoginModal(false)}
-							className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+							className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg p-1"
+							aria-label="Close login"
 						>
 							<svg
 								className="w-6 h-6"
@@ -348,7 +363,12 @@ export default function Home() {
 								/>
 							</svg>
 						</button>
-						<h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Welcome back</h2>
+						<h2
+							id="login-dialog-title"
+							className="text-2xl font-bold text-gray-900 dark:text-white mb-2"
+						>
+							Welcome back
+						</h2>
 						<p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
 							Demo — any email and password work.
 						</p>

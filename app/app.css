@@ -2,8 +2,13 @@
 
 @theme {
 	--font-sans:
-		"Outfit", "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+		"Outfit", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
 		"Segoe UI Symbol", "Noto Color Emoji";
+	/* Design tokens – cohesive palette */
+	--color-brand-from: #059669;
+	--color-brand-to: #0d9488;
+	--color-brand-muted: #d1fae5;
+	--color-brand-muted-dark: rgba(16, 185, 129, 0.2);
 }
 
 html,
@@ -13,6 +18,16 @@ body {
 	@media (prefers-color-scheme: dark) {
 		color-scheme: dark;
 	}
+}
+
+/* Skip to main content – first focusable; visible on focus (WCAG 2.4.1) */
+.skip-link {
+	@apply absolute left-4 top-4 z-[100] -translate-y-[200%] rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition-transform focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:bg-white dark:text-gray-900;
+}
+
+/* Visible focus for keyboard users (WCAG 2.4.7) – do not remove */
+:focus-visible {
+	@apply outline-2 outline-offset-2 outline-emerald-500;
 }
 
 @keyframes gradient {
