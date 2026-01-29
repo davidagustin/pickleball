@@ -1,0 +1,67 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.3.13/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"ignoreUnknown": true,
+		"includes": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", "**/*.json", "**/*.css"]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"indentWidth": 2,
+		"lineWidth": 100
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"complexity": {
+				"noUselessFragments": "warn",
+				"useLiteralKeys": "warn"
+			},
+			"correctness": {
+				"noUnusedVariables": "warn",
+				"noUnusedImports": "warn",
+				"noUnusedFunctionParameters": "warn",
+				"useExhaustiveDependencies": "warn"
+			},
+			"suspicious": {
+				"noExplicitAny": "warn",
+				"noArrayIndexKey": "off",
+				"noTemplateCurlyInString": "warn",
+				"noImplicitAnyLet": "warn"
+			},
+			"security": {
+				"noDangerouslySetInnerHtml": "warn"
+			},
+			"style": {
+				"noNonNullAssertion": "warn",
+				"useTemplate": "warn"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double",
+			"semicolons": "always"
+		}
+	},
+	"css": {
+		"parser": {
+			"cssModules": true,
+			"tailwindDirectives": true
+		}
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	}
+}

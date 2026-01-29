@@ -1,4 +1,4 @@
-import { type RouteConfig, index, route } from "@react-router/dev/routes";
+import { index, type RouteConfig, route } from "@react-router/dev/routes";
 
 export default [
 	index("routes/landing.tsx"),
@@ -10,6 +10,8 @@ export default [
 	route("sessions", "routes/sessions.tsx"),
 	route("tournaments", "routes/tournaments.tsx"),
 	route("guides", "routes/guides.tsx"),
+	route("paddles", "routes/paddles.tsx"),
+	route("paddles/:paddleId", "routes/paddles.$paddleId.tsx"),
 	route("tournaments/:tournamentId", "routes/tournaments.$tournamentId.tsx"),
 	route("join/:code", "routes/join.$code.tsx"),
 	route("profile/:userId", "routes/profile.$userId.tsx"),

@@ -20,16 +20,26 @@
 		"react-router": "7.9.6"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^2.3.13",
 		"@cloudflare/vite-plugin": "1.15.3",
+		"@playwright/test": "^1.58.0",
 		"@react-router/dev": "7.9.6",
 		"@tailwindcss/vite": "4.1.17",
+		"@testing-library/jest-dom": "^6.9.1",
+		"@testing-library/react": "^16.3.2",
+		"@testing-library/user-event": "^14.6.1",
 		"@types/node": "24.10.1",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
+		"@vitest/coverage-v8": "^4.0.18",
+		"husky": "^9.1.7",
+		"jsdom": "^27.4.0",
+		"lint-staged": "^16.2.7",
 		"tailwindcss": "4.1.17",
 		"typescript": "5.9.3",
 		"vite": "^6.0.0",
 		"vite-tsconfig-paths": "5.1.4",
+		"vitest": "^4.0.18",
 		"wrangler": "4.56.0"
 	},
 	"private": true,
@@ -37,10 +47,31 @@
 		"build": "react-router build",
 		"cf-typegen": "wrangler types && react-router typegen",
 		"check": "tsc && react-router build && wrangler deploy --dry-run",
+		"clean": "rm -rf build coverage playwright-report test-results",
 		"deploy": "wrangler deploy",
 		"dev": "react-router dev",
+		"format": "biome format --write .",
+		"format:check": "biome format .",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"prepare": "husky",
 		"preview": "npm run build && vite preview",
-		"typecheck": "npm run typegen && tsc -b"
+		"test": "vitest run",
+		"test:watch": "vitest --watch",
+		"test:coverage": "vitest --coverage",
+		"test:e2e": "playwright test",
+		"test:e2e:ui": "playwright test --ui",
+		"test:e2e:headed": "playwright test --headed",
+		"typecheck": "tsc --noEmit",
+		"validate": "npm run typecheck && npm run lint && npm run test"
+	},
+	"lint-staged": {
+		"*.{js,jsx,ts,tsx}": [
+			"biome check --write"
+		],
+		"*.{json,css}": [
+			"biome check --write"
+		]
 	},
 	"type": "module"
 }

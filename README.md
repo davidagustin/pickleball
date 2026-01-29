@@ -10,7 +10,8 @@ Connect with players, find courts, and reserve spots — all in one place.
 - **Reserve** — Pick a court, date, and time (demo flow; no real booking).
 - **Play sessions** — Weekly calendar with bubbles (color by region), list view, add session (venue, date, time, skill level, min/max players, optional recurring weekly), “Add my name” to join, waitlist when full, session notes. Not court reservation — arrange play so you have enough players before heading out.
 - **Court finder** — Find courts by city, **Add a court** (name, address, city, state, court count, type, reservable), court detail page with queue and room code, “Suggest changes” link.
-- **Guides & learn** — How to play, skill rating, gear guides; plus links to courts and sessions.
+- **Guides & learn** — How to play, skill rating, gear guides; plus links to courts, paddles, and sessions.
+- **Paddle database** — Compare paddle specs (brand, model, core, face, weight, shape, dimensions, price); filter by brand or core.
 - **Tournaments** — Create single-elimination tournaments; admin starts bracket and sets match winners.
 - **Lessons** — Private lessons & coaching tab: post listings (title, location, availability, rate, contact).
 - **Friends & messages** — Friend requests and direct messages (see `/friends`, `/messages`).
@@ -50,6 +51,8 @@ App runs at **http://localhost:5173**.
 - `/courts/new` — Add a court form  
 - `/courts/:courtId` — Court detail: queue, room code, suggest changes  
 - `/guides` — Guides & learn (how to play, skill rating, gear)  
+- `/paddles` — Paddle database (filter by brand/core; compare specs)  
+- `/paddles/:paddleId` — Paddle detail (full specs)  
 - `/tournaments` — List and create tournaments; open one for bracket and admin controls  
 - `/friends`, `/messages` — Friends and DMs  
 - `/profile/:userId` — View/edit profile
