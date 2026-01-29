@@ -55,6 +55,15 @@ export async function getSessionUser(db: D1DB, token: string | null): Promise<Us
 	return user;
 }
 
+/** Get current user from request cookie; returns null if not authenticated. */
+export async function requireUser(
+	db: D1DB,
+	request: Request,
+): Promise<User | null> {
+	const token = getSessionToken(request.headers.get("Cookie") ?? null);
+	return getSessionUser(db, token);
+}
+
 export async function getOrCreateDemoUser(db: D1DB, email: string, name: string): Promise<User> {
 	const existing = await db
 		.prepare("SELECT id, email, name, provider FROM users WHERE provider = 'demo' AND email = ?")
@@ -122,40 +131,64 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
 			created_at: string;
 			author_name: string;
 		}>();
-	const posts: Post[] = [];
-	for (const row of rows.results ?? []) {
-		const likeRows = await db
-			.prepare("SELECT user_id FROM likes WHERE post_id = ?")
-			.bind(row.id)
-			.all<{ user_id: string }>();
-		const commentRows = await db
+	const results = rows.results ?? [];
+	if (results.length === 0) return [];
+
+	const postIds = results.map((r) => r.id);
+	const placeholders = postIds.map(() => "?").join(",");
+
+	const [likeRows, commentRows] = await Promise.all([
+		db
+			.prepare(`SELECT post_id, user_id FROM likes WHERE post_id IN (${placeholders})`)
+			.bind(...postIds)
+			.all<{ post_id: string; user_id: string }>(),
+		db
 			.prepare(
-				`SELECT c.id, c.content, c.created_at, u.name as author_name
+				`SELECT c.post_id, c.id, c.content, c.created_at, u.name as author_name
          FROM comments c
          JOIN users u ON c.author_id = u.id
-         WHERE c.post_id = ?
+         WHERE c.post_id IN (${placeholders})
          ORDER BY c.created_at ASC`,
 			)
-			.bind(row.id)
-			.all<{ id: string; content: string; created_at: string; author_name: string }>();
-		posts.push({
+			.bind(...postIds)
+			.all<{ post_id: string; id: string; content: string; created_at: string; author_name: string }>(),
+	]);
+
+	const likesByPost: Record<string, string[]> = {};
+	for (const r of likeRows.results ?? []) {
+		if (!likesByPost[r.post_id]) likesByPost[r.post_id] = [];
+		likesByPost[r.post_id].push(r.user_id);
+	}
+	const commentsByPost: Record<string, { id: string; content: string; created_at: string; author_name: string }[]> = {};
+	for (const r of commentRows.results ?? []) {
+		if (!commentsByPost[r.post_id]) commentsByPost[r.post_id] = [];
+		commentsByPost[r.post_id].push({
+			id: r.id,
+			content: r.content,
+			created_at: r.created_at,
+			author_name: r.author_name,
+		});
+	}
+
+	const posts: Post[] = results.map((row) => {
+		const likeUserIds = likesByPost[row.id] ?? [];
+		const comments = (commentsByPost[row.id] ?? []).map((c) => ({
+			id: c.id,
+			authorName: c.author_name,
+			content: c.content,
+			createdAt: c.created_at,
+		}));
+		return {
 			id: row.id,
 			authorId: row.author_id,
 			authorName: row.author_name,
 			content: row.content,
 			createdAt: row.created_at,
-			likes: likeRows.results?.length ?? 0,
-			likedByMe: currentUserId
-				? (likeRows.results?.some((r) => r.user_id === currentUserId) ?? false)
-				: false,
-			comments: (commentRows.results ?? []).map((c) => ({
-				id: c.id,
-				authorName: c.author_name,
-				content: c.content,
-				createdAt: c.created_at,
-			})),
-		});
-	}
+			likes: likeUserIds.length,
+			likedByMe: currentUserId ? likeUserIds.includes(currentUserId) : false,
+			comments,
+		};
+	});
 	return posts;
 }
 
@@ -265,7 +298,8 @@ export async function getProfile(db: D1DB, userId: string): Promise<UserProfile 
 			regionId: row.region_id ?? null,
 			updatedAt: row.updated_at,
 		};
-	} catch {
+	} catch (err) {
+		console.error("[getProfile] fallback query for user_profiles:", err);
 		const row = await db
 			.prepare(
 				"SELECT user_id, bio, paddle, shoes, gear, dupr_link, updated_at FROM user_profiles WHERE user_id = ?",
@@ -443,12 +477,17 @@ export async function getConversations(
 		}
 		if (m.receiver_id === userId && !m.read_at) byOther[otherId].unread += 1;
 	}
+	const otherIds = Object.keys(byOther);
+	if (otherIds.length === 0) return [];
+	const placeholders = otherIds.map(() => "?").join(",");
+	const userRows = await db
+		.prepare(`SELECT id, email, name, provider FROM users WHERE id IN (${placeholders})`)
+		.bind(...otherIds)
+		.all<User>();
+	const userMap = new Map((userRows.results ?? []).map((u) => [u.id, u]));
 	const out: { user: User; lastMessage: string; lastAt: string; unread: number }[] = [];
-	for (const otherId of Object.keys(byOther)) {
-		const u = await db
-			.prepare("SELECT id, email, name, provider FROM users WHERE id = ?")
-			.bind(otherId)
-			.first<User>();
+	for (const otherId of otherIds) {
+		const u = userMap.get(otherId);
 		if (u) out.push({ user: u, ...byOther[otherId] });
 	}
 	out.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
@@ -655,6 +694,35 @@ export async function isCourtAdmin(db: D1DB, courtId: string, userId: string): P
 		.bind(courtId, userId)
 		.first();
 	return !!row;
+}
+
+/** Batch-fetch myInQueue and myAdminStatus for a user across court IDs (avoids N+1 in home loader). */
+export async function getMyQueueAndAdminStatus(
+	db: D1DB,
+	courtIds: string[],
+	userId: string,
+): Promise<{ myInQueue: Record<string, boolean>; myAdminStatus: Record<string, boolean> }> {
+	const myInQueue: Record<string, boolean> = {};
+	const myAdminStatus: Record<string, boolean> = {};
+	for (const cid of courtIds) {
+		myInQueue[cid] = false;
+		myAdminStatus[cid] = false;
+	}
+	if (courtIds.length === 0) return { myInQueue, myAdminStatus };
+	const placeholders = courtIds.map(() => "?").join(",");
+	const [queueRows, adminRows] = await Promise.all([
+		db
+			.prepare(`SELECT court_id FROM court_queue WHERE user_id = ? AND court_id IN (${placeholders})`)
+			.bind(userId, ...courtIds)
+			.all<{ court_id: string }>(),
+		db
+			.prepare(`SELECT court_id FROM court_admins WHERE user_id = ? AND court_id IN (${placeholders})`)
+			.bind(userId, ...courtIds)
+			.all<{ court_id: string }>(),
+	]);
+	for (const r of queueRows.results ?? []) myInQueue[r.court_id] = true;
+	for (const r of adminRows.results ?? []) myAdminStatus[r.court_id] = true;
+	return { myInQueue, myAdminStatus };
 }
 
 export async function addCourtAdmin(db: D1DB, courtId: string, userId: string): Promise<void> {
@@ -883,51 +951,39 @@ export async function getBracketMatches(db: D1DB, tournamentId: string): Promise
 			next_match_id: string | null;
 			next_slot: number | null;
 		}>();
-	const out: BracketMatch[] = [];
-	for (const r of rows.results ?? []) {
-		let p1Name: string | null = null;
-		let p2Name: string | null = null;
-		let winnerName: string | null = null;
-		if (r.player1_id)
-			p1Name =
-				(
-					await db
-						.prepare("SELECT name FROM users WHERE id = ?")
-						.bind(r.player1_id)
-						.first<{ name: string }>()
-				)?.name ?? null;
-		if (r.player2_id)
-			p2Name =
-				(
-					await db
-						.prepare("SELECT name FROM users WHERE id = ?")
-						.bind(r.player2_id)
-						.first<{ name: string }>()
-				)?.name ?? null;
-		if (r.winner_id)
-			winnerName =
-				(
-					await db
-						.prepare("SELECT name FROM users WHERE id = ?")
-						.bind(r.winner_id)
-						.first<{ name: string }>()
-				)?.name ?? null;
-		out.push({
-			id: r.id,
-			tournamentId: r.tournament_id,
-			round: r.round,
-			matchOrder: r.match_order,
-			player1Id: r.player1_id,
-			player1Name: p1Name,
-			player2Id: r.player2_id,
-			player2Name: p2Name,
-			winnerId: r.winner_id,
-			winnerName,
-			nextMatchId: r.next_match_id,
-			nextSlot: r.next_slot,
-		});
+	const results = rows.results ?? [];
+	const userIds = new Set<string>();
+	for (const r of results) {
+		if (r.player1_id) userIds.add(r.player1_id);
+		if (r.player2_id) userIds.add(r.player2_id);
+		if (r.winner_id) userIds.add(r.winner_id);
 	}
-	return out;
+	const nameMap = new Map<string, string>();
+	if (userIds.size > 0) {
+		const ids = [...userIds];
+		const placeholders = ids.map(() => "?").join(",");
+		const userRows = await db
+			.prepare(`SELECT id, name FROM users WHERE id IN (${placeholders})`)
+			.bind(...ids)
+			.all<{ id: string; name: string }>();
+		for (const u of userRows.results ?? []) {
+			nameMap.set(u.id, u.name);
+		}
+	}
+	return results.map((r) => ({
+		id: r.id,
+		tournamentId: r.tournament_id,
+		round: r.round,
+		matchOrder: r.match_order,
+		player1Id: r.player1_id,
+		player1Name: r.player1_id ? nameMap.get(r.player1_id) ?? null : null,
+		player2Id: r.player2_id,
+		player2Name: r.player2_id ? nameMap.get(r.player2_id) ?? null : null,
+		winnerId: r.winner_id,
+		winnerName: r.winner_id ? nameMap.get(r.winner_id) ?? null : null,
+		nextMatchId: r.next_match_id,
+		nextSlot: r.next_slot,
+	}));
 }
 
 export async function setMatchWinner(
@@ -1144,7 +1200,8 @@ export async function getCourts(
 			createdBy: r.created_by,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (err) {
+		console.error("[getCourts] query failed:", err);
 		return [];
 	}
 }
@@ -1302,7 +1359,8 @@ export async function getPaddles(
 			description: r.description,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (err) {
+		console.error("[getPaddles] query failed:", err);
 		return [];
 	}
 }
@@ -1724,7 +1782,8 @@ export async function getSessionWaitlist(db: D1DB, sessionId: string): Promise<S
 			userName: r.user_name,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (err) {
+		console.error("[getSessionWaitlist] query failed (table may not exist):", err);
 		return [];
 	}
 }
