@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Route } from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {
@@ -11,7 +12,54 @@ export function loader({ context }: Route.LoaderArgs) {
 	return {};
 }
 
+const MOCK_COURTS = [
+	{ id: "1", name: "Downtown Community Center", courts: 4, rating: "4.8" },
+	{ id: "2", name: "Riverside Park", courts: 2, rating: "4.6" },
+	{ id: "3", name: "Sunset Rec Complex", courts: 6, rating: "4.9" },
+];
+
+const TIME_SLOTS = [
+	"9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM",
+	"1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM",
+];
+
+// Simulate which slots are already taken (random-ish but stable)
+function isSlotTaken(slotIndex: number, courtId: string): boolean {
+	const hash = (courtId + slotIndex) % 5;
+	return hash === 0 || hash === 2;
+}
+
 export default function Home() {
+	const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
+	const [selectedDate, setSelectedDate] = useState<string>("");
+	const [selectedTime, setSelectedTime] = useState<string | null>(null);
+	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [isSuccess, setIsSuccess] = useState(false);
+	const [reservationId, setReservationId] = useState<string>("");
+
+	const handleReserve = async () => {
+		if (!selectedCourt || !selectedDate || !selectedTime) return;
+		setIsSubmitting(true);
+		setReservationId("");
+		// Simulate API call
+		await new Promise((r) => setTimeout(r, 1500));
+		setReservationId(`PB-${Date.now().toString(36).toUpperCase().slice(-6)}`);
+		setIsSubmitting(false);
+		setIsSuccess(true);
+	};
+
+	const resetSimulation = () => {
+		setSelectedCourt(null);
+		setSelectedDate("");
+		setSelectedTime(null);
+		setIsSuccess(false);
+		setReservationId("");
+	};
+
+	const court = MOCK_COURTS.find((c) => c.id === selectedCourt);
+	const today = new Date().toISOString().slice(0, 10);
+	const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
 	return (
 		<div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
 			{/* Navigation */}
@@ -22,7 +70,7 @@ export default function Home() {
 							Pickleball
 						</div>
 						<div className="hidden md:flex items-center gap-8">
-							<a href="#courts" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Find Courts</a>
+							<a href="#reserve" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Reserve Court</a>
 							<a href="#features" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Features</a>
 							<a href="#about" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">About</a>
 							<button className="px-6 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full font-semibold hover:shadow-lg hover:scale-105 transition-all">
@@ -51,9 +99,9 @@ export default function Home() {
 							Connect with players, discover courts, and join the community that's taking the world by storm.
 						</p>
 						<div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-							<button className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-lg font-bold rounded-full hover:shadow-2xl hover:scale-105 transition-all">
-								Find Courts Near You
-							</button>
+							<a href="#reserve" className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-lg font-bold rounded-full hover:shadow-2xl hover:scale-105 transition-all inline-block text-center">
+								Reserve a Court
+							</a>
 							<button className="px-8 py-4 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-lg font-semibold rounded-full border-2 border-gray-300 dark:border-gray-700 hover:border-emerald-600 dark:hover:border-emerald-500 transition-all">
 								Watch How It Works
 							</button>
@@ -162,6 +210,164 @@ export default function Home() {
 							</div>
 						))}
 					</div>
+				</div>
+			</section>
+
+			{/* Reserve Court Simulation */}
+			<section id="reserve" className="py-24 px-6">
+				<div className="container mx-auto max-w-4xl">
+					<div className="text-center mb-12">
+						<h2 className="text-4xl md:text-5xl font-black mb-4 text-gray-900 dark:text-white">
+							Reserve a Court
+						</h2>
+						<p className="text-xl text-gray-600 dark:text-gray-300">
+							Pick a court, date, and time. This is a simulation — no real booking is made.
+						</p>
+					</div>
+
+					{!isSuccess ? (
+						<div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
+							<div className="p-6 md:p-8 space-y-6">
+								{/* Court selection */}
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+										Court
+									</label>
+									<div className="grid gap-3">
+										{MOCK_COURTS.map((c) => (
+											<button
+												key={c.id}
+												type="button"
+												onClick={() => setSelectedCourt(c.id)}
+												className={`flex items-center justify-between p-4 rounded-xl border-2 text-left transition-all ${
+													selectedCourt === c.id
+														? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-500"
+														: "border-gray-200 dark:border-gray-600 hover:border-emerald-300 dark:hover:border-emerald-700"
+												}`}
+											>
+												<span className="font-medium text-gray-900 dark:text-white">{c.name}</span>
+												<span className="text-sm text-gray-500 dark:text-gray-400">
+													{c.courts} courts · {c.rating}★
+												</span>
+											</button>
+										))}
+									</div>
+								</div>
+
+								{/* Date */}
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+										Date
+									</label>
+									<div className="flex gap-3 flex-wrap">
+										<button
+											type="button"
+											onClick={() => setSelectedDate(today)}
+											className={`px-4 py-2 rounded-lg border-2 font-medium transition-all ${
+												selectedDate === today
+													? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+													: "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-emerald-300"
+											}`}
+										>
+											Today
+										</button>
+										<button
+											type="button"
+											onClick={() => setSelectedDate(tomorrow)}
+											className={`px-4 py-2 rounded-lg border-2 font-medium transition-all ${
+												selectedDate === tomorrow
+													? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+													: "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-emerald-300"
+											}`}
+										>
+											Tomorrow
+										</button>
+									</div>
+								</div>
+
+								{/* Time slots */}
+								<div>
+									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+										Time
+									</label>
+									<div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+										{TIME_SLOTS.map((time, i) => {
+											const taken = selectedCourt ? isSlotTaken(i, selectedCourt) : false;
+											const isSelected = selectedTime === time;
+											return (
+												<button
+													key={time}
+													type="button"
+													disabled={taken}
+													onClick={() => !taken && setSelectedTime(time)}
+													className={`py-2 px-3 rounded-lg border-2 text-sm font-medium transition-all ${
+														taken
+															? "border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed line-through"
+															: isSelected
+																? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+																: "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-emerald-300"
+													}`}
+												>
+													{time}
+												</button>
+											);
+										})}
+									</div>
+									<p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+										Grayed-out slots are already booked (simulated).
+									</p>
+								</div>
+
+								<button
+									type="button"
+									onClick={handleReserve}
+									disabled={!selectedCourt || !selectedDate || !selectedTime || isSubmitting}
+									className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-lg disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all"
+								>
+									{isSubmitting ? (
+										<span className="flex items-center justify-center gap-2">
+											<svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+												<circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+												<path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+											</svg>
+											Reserving…
+										</span>
+									) : (
+										"Reserve this spot"
+									)}
+								</button>
+							</div>
+						</div>
+					) : (
+						<div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-emerald-500 shadow-xl p-8 md:p-12 text-center">
+							<div className="w-20 h-20 mx-auto mb-6 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+								<svg className="w-10 h-10 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+									<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+								</svg>
+							</div>
+							<h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+								You're all set!
+							</h3>
+							<p className="text-gray-600 dark:text-gray-300 mb-6">
+								This was a simulation. In the full app, your reservation would be confirmed.
+							</p>
+							<div className="bg-gray-100 dark:bg-gray-700/50 rounded-xl p-6 text-left max-w-sm mx-auto mb-8">
+								<div className="text-sm text-gray-500 dark:text-gray-400">Confirmation #</div>
+								<div className="font-mono font-bold text-gray-900 dark:text-white">{reservationId}</div>
+								<div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300">
+									{court?.name}<br />
+									{selectedDate === today ? "Today" : "Tomorrow"} at {selectedTime}
+								</div>
+							</div>
+							<button
+								type="button"
+								onClick={resetSimulation}
+								className="px-6 py-3 rounded-full border-2 border-emerald-600 dark:border-emerald-500 text-emerald-600 dark:text-emerald-400 font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+							>
+								Reserve another spot
+							</button>
+						</div>
+					)}
 				</div>
 			</section>
 
