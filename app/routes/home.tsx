@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { AppShell } from "~/components/AppShell";
+import { Button, Modal } from "~/components/ui";
 import {
 	addComment,
 	addCourtAdmin,
@@ -321,135 +322,64 @@ export default function Home() {
 	const today = new Date().toISOString().slice(0, 10);
 	const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
-	useEffect(() => {
-		if (!showLoginModal) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") setShowLoginModal(false);
-		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [showLoginModal]);
-
 	return (
 		<AppShell user={user}>
-			{/* Login Modal — demo: any email/password creates or reuses a demo account */}
-			{showLoginModal && (
-				<div
-					className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-					role="dialog"
-					aria-modal="true"
-					aria-labelledby="login-dialog-title"
-				>
-					<div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-8 relative">
-						<button
-							type="button"
-							onClick={() => setShowLoginModal(false)}
-							className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg p-1"
-							aria-label="Close login"
-						>
-							<svg
-								className="w-6 h-6"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke="currentColor"
-								aria-hidden
-							>
-								<title>Close</title>
-								<path
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									strokeWidth={2}
-									d="M6 18L18 6M6 6l12 12"
-								/>
-							</svg>
-						</button>
-						<h2
-							id="login-dialog-title"
-							className="text-2xl font-bold text-gray-900 dark:text-white mb-2"
-						>
-							Welcome back
-						</h2>
-						<p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
-							Demo — any email and password work.
-						</p>
-						<form method="post" className="space-y-4">
-							<input type="hidden" name="intent" value="demoLogin" />
-							<input
-								type="email"
-								name="email"
-								placeholder="Email"
-								required
-								className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 focus:outline-none"
-							/>
-							<input
-								type="password"
-								name="password"
-								placeholder="Password"
-								required
-								className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 focus:outline-none"
-							/>
-							<button
-								type="submit"
-								className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold disabled:opacity-50"
-							>
-								Login
-							</button>
-						</form>
-					</div>
-				</div>
-			)}
+			<Modal open={showLoginModal} onClose={() => setShowLoginModal(false)} title="Welcome back">
+				<h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Welcome back</h2>
+				<p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
+					Demo — any email and password work.
+				</p>
+				<form method="post" className="space-y-4">
+					<input type="hidden" name="intent" value="demoLogin" />
+					<input
+						type="email"
+						name="email"
+						placeholder="Email"
+						required
+						className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+					/>
+					<input
+						type="password"
+						name="password"
+						placeholder="Password"
+						required
+						className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+					/>
+					<Button type="submit" variant="primary" size="lg" block>
+						Login
+					</Button>
+				</form>
+			</Modal>
 
-			{/* Home page tabs — Feed first (Facebook-like) */}
-			<div className="mx-auto max-w-2xl">
-				<div className="flex flex-wrap gap-2 mb-6 p-1 rounded-xl bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 shadow-sm">
-					<button
-						type="button"
-						onClick={() => setActiveTab("feed")}
-						className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-							activeTab === "feed"
-								? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 shadow-sm"
-								: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50"
-						}`}
-					>
-						Feed
-					</button>
-					<button
-						type="button"
-						onClick={() => setActiveTab("courts")}
-						className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-							activeTab === "courts"
-								? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 shadow-sm"
-								: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50"
-						}`}
-					>
-						Courts
-					</button>
-					<button
-						type="button"
-						onClick={() => setActiveTab("reserve")}
-						className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-							activeTab === "reserve"
-								? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 shadow-sm"
-								: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50"
-						}`}
-					>
-						Reserve
-					</button>
-					<button
-						type="button"
-						onClick={() => setActiveTab("coaching")}
-						className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-							activeTab === "coaching"
-								? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 shadow-sm"
-								: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50"
-						}`}
-					>
-						Lessons
-					</button>
+			<div className="mx-auto max-w-2xl flex-1">
+				<div
+					role="tablist"
+					aria-label="Home sections"
+					className="flex flex-wrap gap-2 mb-6 p-1 rounded-xl bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 shadow-sm"
+				>
+					{(["feed", "courts", "reserve", "coaching"] as const).map((tab) => (
+						<button
+							key={tab}
+							type="button"
+							role="tab"
+							aria-selected={activeTab === tab}
+							onClick={() => setActiveTab(tab)}
+							className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 ${
+								activeTab === tab
+									? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 shadow-sm"
+									: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50"
+							}`}
+						>
+							{tab === "feed"
+								? "Feed"
+								: tab === "coaching"
+									? "Lessons"
+									: tab.charAt(0).toUpperCase() + tab.slice(1)}
+						</button>
+					))}
 				</div>
 
 				<div className="min-h-[60vh]">
-					{/* Feed tab */}
 					{activeTab === "feed" && (
 						<div className="space-y-6">
 							{isLoggedIn && (
@@ -580,7 +510,6 @@ export default function Home() {
 						</div>
 					)}
 
-					{/* Courts tab */}
 					{activeTab === "courts" && (
 						<div className="space-y-6">
 							<h1 className="text-2xl font-bold text-gray-900 dark:text-white">Find courts</h1>
@@ -786,7 +715,6 @@ export default function Home() {
 						</div>
 					)}
 
-					{/* Coaching / private lessons tab */}
 					{activeTab === "coaching" && (
 						<div className="space-y-6">
 							<h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -1030,7 +958,6 @@ export default function Home() {
 						</div>
 					)}
 
-					{/* Reserve tab */}
 					{activeTab === "reserve" && (
 						<div className="space-y-6">
 							<h1 className="text-2xl font-bold text-gray-900 dark:text-white">Reserve a court</h1>
@@ -1274,25 +1201,6 @@ export default function Home() {
 					)}
 				</div>
 			</div>
-
-			<footer className="border-t border-gray-200 dark:border-gray-800 py-6 mt-12">
-				<div className="mx-auto max-w-2xl flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-					<span className="font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-						Pickleball
-					</span>
-					<div className="flex gap-6">
-						<a href="/#privacy" className="hover:text-emerald-600 dark:hover:text-emerald-400">
-							Privacy
-						</a>
-						<a href="/#terms" className="hover:text-emerald-600 dark:hover:text-emerald-400">
-							Terms
-						</a>
-						<a href="/#contact" className="hover:text-emerald-600 dark:hover:text-emerald-400">
-							Contact
-						</a>
-					</div>
-				</div>
-			</footer>
 		</AppShell>
 	);
 }

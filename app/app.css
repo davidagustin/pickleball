@@ -1,33 +1,45 @@
 @import "tailwindcss" source(".");
 
+/* Design system: tokens and typography */
 @theme {
 	--font-sans:
-		"Outfit", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
-		"Segoe UI Symbol", "Noto Color Emoji";
-	/* Design tokens – cohesive palette */
-	--color-brand-from: #059669;
-	--color-brand-to: #0d9488;
-	--color-brand-muted: #d1fae5;
-	--color-brand-muted-dark: rgba(16, 185, 129, 0.2);
+		"Plus Jakarta Sans", "Outfit", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+		"Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+	--font-display: "Outfit", var(--font-sans);
+}
+
+:root {
+	--color-brand: #059669;
+	--color-brand-hover: #047857;
+	--focus-ring: 0 0 0 3px rgba(5, 150, 105, 0.45);
 }
 
 html,
 body {
 	@apply bg-white dark:bg-gray-950;
-
 	@media (prefers-color-scheme: dark) {
 		color-scheme: dark;
 	}
 }
 
-/* Skip to main content – first focusable; visible on focus (WCAG 2.4.1) */
+/* Skip to main content — first focusable; visible on focus (WCAG 2.4.1) */
 .skip-link {
-	@apply absolute left-4 top-4 z-[100] -translate-y-[200%] rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition-transform focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:bg-white dark:text-gray-900;
+	@apply absolute left-4 -top-full z-[100] rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-[top] duration-200 focus:top-4 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2;
 }
 
-/* Visible focus for keyboard users (WCAG 2.4.7) – do not remove */
-:focus-visible {
-	@apply outline-2 outline-offset-2 outline-emerald-500;
+/* High-contrast focus visible for keyboard users */
+:where(
+		a,
+		button,
+		[type="button"],
+		[type="submit"],
+		[type="reset"],
+		input,
+		select,
+		textarea
+	):focus-visible {
+	outline: 2px solid var(--color-brand);
+	outline-offset: 2px;
 }
 
 @keyframes gradient {
@@ -45,14 +57,30 @@ body {
 	animation: gradient 3s ease infinite;
 }
 
-/* Smooth scrolling */
+/* Staggered reveal for page load (optional use) */
+@keyframes fade-in-up {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.animate-fade-in-up {
+	animation: fade-in-up 0.4s ease-out forwards;
+}
+
 html {
 	scroll-behavior: smooth;
 }
 
-/* Custom scrollbar */
+/* Themed scrollbar */
 ::-webkit-scrollbar {
 	width: 10px;
+	height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -68,7 +96,6 @@ html {
 	background: linear-gradient(to bottom, #059669, #0d9488);
 }
 
-/* Hide scrollbar but keep scroll (e.g. top nav) */
 .scrollbar-hide {
 	-ms-overflow-style: none;
 	scrollbar-width: none;

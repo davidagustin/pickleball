@@ -19,7 +19,7 @@ export const links: Route.LinksFunction = () => [
 	},
 	{
 		rel: "stylesheet",
-		href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap",
+		href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap",
 	},
 ];
 
@@ -33,9 +33,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 				<Links />
 			</head>
 			<body>
-				<a href="#main-content" className="skip-link">
-					Skip to main content
-				</a>
 				{children}
 				<ScrollRestoration />
 				<Scripts />
@@ -63,19 +60,17 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 	}
 
 	return (
-		<main
-			id="main-content"
-			className="min-h-screen pt-16 p-4 sm:p-6 container mx-auto max-w-2xl"
-			tabIndex={-1}
-		>
-			<div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 sm:p-8 shadow-sm">
-				<h1 className="text-2xl font-bold text-gray-900 dark:text-white">{message}</h1>
-				<p className="mt-2 text-gray-600 dark:text-gray-400">{details}</p>
-				{stack && (
-					<pre className="mt-4 w-full p-4 overflow-x-auto rounded-lg bg-gray-100 dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300">
-						<code>{stack}</code>
-					</pre>
-				)}
+		<main className="min-h-screen bg-[#f0f2f5] dark:bg-gray-950 pt-20 px-4 pb-12">
+			<div className="mx-auto max-w-2xl">
+				<div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-8 shadow-sm">
+					<h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{message}</h1>
+					<p className="text-gray-600 dark:text-gray-400">{details}</p>
+					{stack && (
+						<pre className="mt-6 w-full p-4 rounded-xl bg-gray-100 dark:bg-gray-900 text-sm overflow-x-auto border border-gray-200 dark:border-gray-700">
+							<code>{stack}</code>
+						</pre>
+					)}
+				</div>
 			</div>
 		</main>
 	);
