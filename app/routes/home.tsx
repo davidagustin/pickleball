@@ -1,5 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { Link, useLoaderData, useActionData, useFetcher } from "react-router";
+import { redirect } from "react-router";
 import type { Route } from "./+types/home";
+import {
+	getSessionToken,
+	getSessionUser,
+	getOrCreateDemoUser,
+	createSession,
+	sessionCookie,
+	getPosts,
+	getUsers,
+	createPost,
+	toggleLike,
+	addComment,
+} from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
 	return [
@@ -8,8 +22,73 @@ export function meta({}: Route.MetaArgs) {
 	];
 }
 
-export function loader({ context }: Route.LoaderArgs) {
-	return {};
+export async function loader({ context, request }: Route.LoaderArgs) {
+	const db = context.cloudflare.env.DB;
+	if (!db) {
+		return { user: null, posts: [], users: [], oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID } };
+	}
+	const cookieHeader = request.headers.get("Cookie");
+	const token = getSessionToken(cookieHeader);
+	const user = await getSessionUser(db, token);
+	const posts = await getPosts(db, user?.id ?? null);
+	const users = await getUsers(db, 50);
+	return {
+		user,
+		posts,
+		users,
+		oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID },
+	};
+}
+
+export async function action({ context, request }: Route.ActionArgs) {
+	const db = context.cloudflare.env.DB;
+	if (!db) {
+		return { error: "Database not configured" };
+	}
+	const formData = await request.formData();
+	const intent = formData.get("intent");
+
+	if (intent === "demoLogin") {
+		const email = (formData.get("email") as string)?.trim();
+		const password = formData.get("password");
+		if (!email) return { error: "Email required" };
+		const user = await getOrCreateDemoUser(db, email, email.split("@")[0] || "Player");
+		const token = await createSession(db, user.id);
+		return redirect("/home", {
+			headers: { "Set-Cookie": sessionCookie(token) },
+		});
+	}
+
+	if (intent === "addPost" || intent === "like" || intent === "addComment") {
+		const cookieHeader = request.headers.get("Cookie");
+		const token = getSessionToken(cookieHeader);
+		const user = await getSessionUser(db, token);
+		if (!user) return { error: "Login required" };
+
+		if (intent === "addPost") {
+			const content = (formData.get("content") as string)?.trim();
+			if (!content) return { error: "Content required" };
+			await createPost(db, user.id, content);
+			return redirect("/home");
+		}
+
+		if (intent === "like") {
+			const postId = formData.get("postId") as string;
+			if (!postId) return { error: "postId required" };
+			await toggleLike(db, postId, user.id);
+			return redirect("/home");
+		}
+
+		if (intent === "addComment") {
+			const postId = formData.get("postId") as string;
+			const content = (formData.get("content") as string)?.trim();
+			if (!postId || !content) return { error: "postId and content required" };
+			await addComment(db, postId, user.id, content);
+			return redirect("/home");
+		}
+	}
+
+	return { error: "Unknown action" };
 }
 
 const MOCK_COURTS = [
@@ -26,72 +105,6 @@ const TIME_SLOTS = [
 function isSlotTaken(slotIndex: number, courtId: string): boolean {
 	const hash = (courtId + slotIndex) % 5;
 	return hash === 0 || hash === 2;
-}
-
-const STORAGE_POSTS = "pickleball_posts";
-
-type Comment = { id: string; authorName: string; content: string; createdAt: string };
-type Post = {
-	id: string;
-	authorId: string;
-	authorName: string;
-	content: string;
-	createdAt: string;
-	likes: number;
-	likedBy: string[];
-	comments: Comment[];
-};
-
-const SEED_POSTS: Post[] = [
-	{
-		id: "seed-1",
-		authorId: "u1",
-		authorName: "Sarah",
-		content: "Looking for doubles partners at Downtown Community Center this Saturday 10am. Who's in? 🏓",
-		createdAt: new Date(Date.now() - 3600000).toISOString(),
-		likes: 12,
-		likedBy: [],
-		comments: [
-			{ id: "c1", authorName: "Mike", content: "I'm down! See you there.", createdAt: new Date(Date.now() - 3000000).toISOString() },
-			{ id: "c2", authorName: "Jen", content: "Count me in too!", createdAt: new Date(Date.now() - 2400000).toISOString() },
-		],
-	},
-	{
-		id: "seed-2",
-		authorId: "u2",
-		authorName: "Mike",
-		content: "Riverside Park courts are freshly resurfaced. Played there yesterday — so smooth!",
-		createdAt: new Date(Date.now() - 86400000).toISOString(),
-		likes: 28,
-		likedBy: [],
-		comments: [
-			{ id: "c3", authorName: "Alex", content: "Nice, need to check it out.", createdAt: new Date(Date.now() - 80000000).toISOString() },
-		],
-	},
-	{
-		id: "seed-3",
-		authorId: "u3",
-		authorName: "Jen",
-		content: "Just reserved a spot at Sunset Rec for tomorrow 3pm. Anyone want to join? We have 3 so far.",
-		createdAt: new Date(Date.now() - 7200000).toISOString(),
-		likes: 5,
-		likedBy: [],
-		comments: [],
-	},
-];
-
-function loadPosts(): Post[] {
-	try {
-		const raw = localStorage.getItem(STORAGE_POSTS);
-		if (raw) {
-			const parsed: Post[] = JSON.parse(raw);
-			return parsed.map((p) => ({ ...p, likedBy: p.likedBy ?? [], comments: p.comments ?? [] }));
-		}
-		localStorage.setItem(STORAGE_POSTS, JSON.stringify(SEED_POSTS));
-		return SEED_POSTS;
-	} catch {
-		return SEED_POSTS;
-	}
 }
 
 function formatTime(iso: string) {
@@ -288,9 +301,12 @@ export default function Home() {
 			<nav className="sticky top-0 z-40 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
 				<div className="container mx-auto px-4 py-3 max-w-4xl">
 					<div className="flex items-center justify-between">
-						<div className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-							Pickleball
-						</div>
+						<Link
+								to="/"
+								className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent hover:opacity-90"
+							>
+								Pickleball
+							</Link>
 						<div className="flex items-center gap-2 sm:gap-4">
 							<button
 								onClick={() => setActiveTab("feed")}
