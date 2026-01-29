@@ -1,6 +1,6 @@
 # Pickleball
 
-Connect with players, find courts, and reserve spots — all in one place.
+Connect with players, find courts, and find games—all in one place.
 
 ## What it does
 
@@ -100,15 +100,17 @@ app/
   routes/
     landing.tsx   # Landing page (index /)
     demo.tsx      # One-click demo login (/demo)
-    home.tsx      # App: feed, courts, reserve, lessons (/home)
+    home.tsx      # App: feed, courts, reserve, lessons, sessions link (/home)
+    courts.tsx, courts.new.tsx, courts.$courtId.tsx
+    sessions.tsx
+    guides.tsx, paddles.tsx, paddles.$paddleId.tsx
     tournaments.tsx, tournaments.$tournamentId.tsx
     friends.tsx, messages.tsx, messages.$otherId.tsx
     profile.$userId.tsx, join.$code.tsx
   lib/
     db.server.ts  # D1 helpers
 migrations/
-  0000_init.sql .. 0006_coaching_listings.sql  # Schema
-  0007_seed_demo.sql                            # Demo data for all features
+  0000_init.sql .. 0011_paddles_database.sql   # Schema + demo seed (0007)
 ```
 
 ---

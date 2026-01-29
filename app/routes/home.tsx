@@ -27,10 +27,10 @@ import {
 	getCourts,
 } from "~/lib/db.server";
 
-export function meta({}: Route.MetaArgs) {
+export function meta(_: Route.MetaArgs) {
 	return [
-		{ title: "Pickleball - Connect, Find Courts, Reserve" },
-		{ name: "description", content: "The pickleball community. Chat, find courts, and reserve spots." },
+		{ title: "Pickleball - Connect, Find Courts, Find Games" },
+		{ name: "description", content: "The pickleball community. Chat, find courts, and join games and sessions—all in one place." },
 	];
 }
 

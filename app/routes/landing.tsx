@@ -1,10 +1,10 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/landing";
 
-export function meta({}: Route.MetaArgs) {
+export function meta(_: Route.MetaArgs) {
 	return [
-		{ title: "Pickleball - Connect, Find Courts, Reserve" },
-		{ name: "description", content: "The pickleball community. Chat, find courts, and reserve spots." },
+		{ title: "Pickleball - Connect, Find Courts, Find Games" },
+		{ name: "description", content: "The pickleball community. Chat, find courts, and join games and sessions—all in one place." },
 	];
 }
 
@@ -26,7 +26,7 @@ export default function Landing() {
 						to="/home"
 						className="px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-90 transition-opacity shadow-lg shadow-emerald-500/25"
 					>
-						Login
+						Log in
 					</Link>
 				</div>
 			</header>
@@ -35,11 +35,11 @@ export default function Landing() {
 				<h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-gray-900 dark:text-white tracking-tight max-w-3xl leading-tight">
 					Connect. Find courts.{" "}
 					<span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-						Reserve.
+						Find games.
 					</span>
 				</h1>
 				<p className="mt-6 text-lg sm:text-xl text-gray-600 dark:text-gray-400 max-w-2xl">
-					Join the pickleball community. Chat with players, discover courts near you, and book your next game in one place.
+					Join the pickleball community. Chat with players, discover courts, and join games and sessions—all in one place.
 				</p>
 				<div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
 					<Link
@@ -56,7 +56,7 @@ export default function Landing() {
 					</Link>
 				</div>
 				<p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-					Try demo logs you in as Alex so you can see the feed, courts, tournaments, lessons, and more.
+					Try demo logs you in as Alex so you can explore the feed, courts, sessions, tournaments, lessons, and more.
 				</p>
 
 				{/* Feature pills */}
@@ -68,13 +68,16 @@ export default function Landing() {
 						Find courts
 					</span>
 					<span className="px-4 py-2 rounded-full bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm">
-						Reserve spots
+						Play sessions
 					</span>
 					<span className="px-4 py-2 rounded-full bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm">
 						Tournaments
 					</span>
 					<span className="px-4 py-2 rounded-full bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm">
-						Lessons & coaching
+						Lessons
+					</span>
+					<span className="px-4 py-2 rounded-full bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm">
+						Guides & paddles
 					</span>
 				</div>
 			</main>
@@ -85,9 +88,9 @@ export default function Landing() {
 						Pickleball
 					</span>
 					<div className="flex gap-6">
-						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">Privacy</a>
-						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">Terms</a>
-						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">Contact</a>
+						<a href="/#privacy" className="hover:text-emerald-600 dark:hover:text-emerald-400">Privacy</a>
+						<a href="/#terms" className="hover:text-emerald-600 dark:hover:text-emerald-400">Terms</a>
+						<a href="/#contact" className="hover:text-emerald-600 dark:hover:text-emerald-400">Contact</a>
 					</div>
 				</div>
 			</footer>
