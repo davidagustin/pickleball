@@ -43,10 +43,10 @@ export default function Landing() {
 				</p>
 				<div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
 					<Link
-						to="/home"
+						to="/demo"
 						className="inline-flex items-center justify-center px-8 py-4 rounded-xl text-base font-bold bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-90 transition-opacity shadow-xl shadow-emerald-500/30"
 					>
-						Get started
+						Try demo
 					</Link>
 					<Link
 						to="/home"
@@ -55,6 +55,9 @@ export default function Landing() {
 						Go to app
 					</Link>
 				</div>
+				<p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+					Try demo logs you in as Alex so you can see the feed, courts, tournaments, lessons, and more.
+				</p>
 
 				{/* Feature pills */}
 				<div className="mt-16 flex flex-wrap justify-center gap-3">
@@ -66,6 +69,12 @@ export default function Landing() {
 					</span>
 					<span className="px-4 py-2 rounded-full bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm">
 						Reserve spots
+					</span>
+					<span className="px-4 py-2 rounded-full bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm">
+						Tournaments
+					</span>
+					<span className="px-4 py-2 rounded-full bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm">
+						Lessons & coaching
 					</span>
 				</div>
 			</main>

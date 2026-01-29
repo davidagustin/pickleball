@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLoaderData, useActionData, useFetcher } from "react-router";
 import { redirect } from "react-router";
 import type { Route } from "./+types/home";
@@ -13,6 +13,17 @@ import {
 	createPost,
 	toggleLike,
 	addComment,
+	getQueuesForCourts,
+	getCodesForCourts,
+	getAdminsForCourts,
+	isCourtAdmin,
+	addCourtAdmin,
+	joinCourtQueue,
+	leaveCourtQueue,
+	isInQueue,
+	getCoachingListings,
+	createCoachingListing,
+	deleteCoachingListing,
 } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
@@ -22,20 +33,54 @@ export function meta({}: Route.MetaArgs) {
 	];
 }
 
+const COURT_IDS = ["1", "2", "3"];
+
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const db = context.cloudflare.env.DB;
 	if (!db) {
-		return { user: null, posts: [], users: [], oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID } };
+		return {
+			user: null,
+			posts: [],
+			users: [],
+			courtQueues: {} as Record<string, { userId: string; userName: string; position: number; createdAt: string }[]>,
+			courtCodes: {} as Record<string, string>,
+			courtAdmins: {} as Record<string, { userId: string; userName: string; createdAt: string }[]>,
+			myInQueue: {} as Record<string, boolean>,
+			myAdminStatus: {} as Record<string, boolean>,
+			coachingListings: [] as { id: string; userId: string; userName: string; title: string; description: string | null; location: string | null; availability: string | null; rate: string | null; contactInfo: string | null; createdAt: string }[],
+			origin: "",
+			oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID },
+		};
 	}
 	const cookieHeader = request.headers.get("Cookie");
 	const token = getSessionToken(cookieHeader);
 	const user = await getSessionUser(db, token);
 	const posts = await getPosts(db, user?.id ?? null);
 	const users = await getUsers(db, 50);
+	const courtQueues = await getQueuesForCourts(db, COURT_IDS);
+	const courtCodes = await getCodesForCourts(db, COURT_IDS);
+	const courtAdmins = await getAdminsForCourts(db, COURT_IDS);
+	const myInQueue: Record<string, boolean> = {};
+	const myAdminStatus: Record<string, boolean> = {};
+	if (user) {
+		for (const cid of COURT_IDS) {
+			myInQueue[cid] = await isInQueue(db, cid, user.id);
+			myAdminStatus[cid] = await isCourtAdmin(db, cid, user.id);
+		}
+	}
+	const coachingListings = await getCoachingListings(db, 100);
+	const origin = new URL(request.url).origin;
 	return {
 		user,
 		posts,
 		users,
+		courtQueues,
+		courtCodes,
+		courtAdmins,
+		myInQueue,
+		myAdminStatus,
+		coachingListings,
+		origin,
 		oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID },
 	};
 }
@@ -88,6 +133,62 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 	}
 
+	if (intent === "joinQueue" || intent === "leaveQueue") {
+		const cookieHeader = request.headers.get("Cookie");
+		const token = getSessionToken(cookieHeader);
+		const user = await getSessionUser(db, token);
+		if (!user) return { error: "Login required" };
+		const courtId = formData.get("courtId") as string;
+		if (!courtId || !["1", "2", "3"].includes(courtId)) return { error: "Invalid court" };
+		if (intent === "joinQueue") await joinCourtQueue(db, courtId, user.id);
+		else await leaveCourtQueue(db, courtId, user.id);
+		return redirect("/home");
+	}
+
+	if (intent === "makeAdmin") {
+		const cookieHeader = request.headers.get("Cookie");
+		const token = getSessionToken(cookieHeader);
+		const currentUser = await getSessionUser(db, token);
+		if (!currentUser) return { error: "Login required" };
+		const courtId = formData.get("courtId") as string;
+		const targetUserId = formData.get("userId") as string;
+		if (!courtId || !targetUserId || !["1", "2", "3"].includes(courtId)) return { error: "Invalid request" };
+		const isAdmin = await isCourtAdmin(db, courtId, currentUser.id);
+		if (!isAdmin) return { error: "Only admins can make others admin" };
+		await addCourtAdmin(db, courtId, targetUserId);
+		return redirect("/home");
+	}
+
+	if (intent === "addCoaching") {
+		const cookieHeader = request.headers.get("Cookie");
+		const token = getSessionToken(cookieHeader);
+		const user = await getSessionUser(db, token);
+		if (!user) return { error: "Login required" };
+		const title = (formData.get("title") as string)?.trim();
+		if (!title) return { error: "Title required" };
+		await createCoachingListing(db, user.id, {
+			title,
+			description: (formData.get("description") as string)?.trim() || undefined,
+			location: (formData.get("location") as string)?.trim() || undefined,
+			availability: (formData.get("availability") as string)?.trim() || undefined,
+			rate: (formData.get("rate") as string)?.trim() || undefined,
+			contactInfo: (formData.get("contactInfo") as string)?.trim() || undefined,
+		});
+		return redirect("/home");
+	}
+
+	if (intent === "deleteCoaching") {
+		const cookieHeader = request.headers.get("Cookie");
+		const token = getSessionToken(cookieHeader);
+		const user = await getSessionUser(db, token);
+		if (!user) return { error: "Login required" };
+		const listingId = formData.get("listingId") as string;
+		if (!listingId) return { error: "Listing ID required" };
+		const result = await deleteCoachingListing(db, listingId, user.id);
+		if (result.error) return { error: result.error };
+		return redirect("/home");
+	}
+
 	return { error: "Unknown action" };
 }
 
@@ -119,10 +220,16 @@ function formatTime(iso: string) {
 }
 
 export default function Home() {
-	const [activeTab, setActiveTab] = useState<"feed" | "courts" | "reserve">("feed");
-	const [posts, setPosts] = useState<Post[]>([]);
-	const [isLoggedIn, setIsLoggedIn] = useState(false);
-	const [user, setUser] = useState<{ email: string; name: string } | null>(null);
+	const loaderData = useLoaderData<typeof loader>();
+	const { user: loaderUser, posts: loaderPosts, courtQueues = {}, courtCodes = {}, courtAdmins = {}, myInQueue = {}, myAdminStatus = {}, coachingListings = [], origin = "" } = loaderData;
+	const [activeTab, setActiveTab] = useState<"feed" | "courts" | "reserve" | "coaching">("feed");
+	const [posts, setPosts] = useState<typeof loaderPosts>(loaderPosts);
+	const [user, setUser] = useState<typeof loaderUser>(loaderUser);
+	const isLoggedIn = !!user;
+	useEffect(() => {
+		setPosts(loaderPosts);
+		setUser(loaderUser);
+	}, [loaderPosts, loaderUser]);
 	const [showLoginModal, setShowLoginModal] = useState(false);
 	const [loginEmail, setLoginEmail] = useState("");
 	const [loginPassword, setLoginPassword] = useState("");
@@ -137,19 +244,8 @@ export default function Home() {
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [reservationId, setReservationId] = useState<string>("");
 
-	useEffect(() => {
-		setPosts(loadPosts());
-		const savedUser = localStorage.getItem("pickleball_user");
-		if (savedUser) {
-			const userData = JSON.parse(savedUser);
-			setUser(userData);
-			setIsLoggedIn(true);
-		}
-	}, []);
-
 	const savePosts = useCallback((next: Post[]) => {
 		setPosts(next);
-		localStorage.setItem(STORAGE_POSTS, JSON.stringify(next));
 	}, []);
 
 	const handleLogin = async (e: React.FormEvent) => {
@@ -338,6 +434,22 @@ export default function Home() {
 							>
 								Reserve
 							</button>
+							<button
+								onClick={() => setActiveTab("coaching")}
+								className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+									activeTab === "coaching"
+										? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
+										: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+								}`}
+							>
+								Lessons
+							</button>
+							<Link
+								to="/tournaments"
+								className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+							>
+								Tournaments
+							</Link>
 							{isLoggedIn ? (
 								<div className="flex items-center gap-2 pl-2 border-l border-gray-200 dark:border-gray-700">
 									<span className="text-sm text-gray-600 dark:text-gray-400 hidden sm:inline">{user?.name}</span>
@@ -349,12 +461,20 @@ export default function Home() {
 									</button>
 								</div>
 							) : (
-								<button
-									onClick={() => setShowLoginModal(true)}
-									className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-90"
-								>
-									Login
-								</button>
+								<>
+									<Link
+										to="/demo"
+										className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-90"
+									>
+										Try demo
+									</Link>
+									<button
+										onClick={() => setShowLoginModal(true)}
+										className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+									>
+										Login
+									</button>
+								</>
 							)}
 						</div>
 					</div>
@@ -460,26 +580,294 @@ export default function Home() {
 				{activeTab === "courts" && (
 					<div className="space-y-6">
 						<h1 className="text-2xl font-bold text-gray-900 dark:text-white">Find courts</h1>
-						<p className="text-gray-600 dark:text-gray-400">Browse courts and reserve a spot when you're ready.</p>
+						<p className="text-gray-600 dark:text-gray-400">Browse courts, join the queue (no paddles on the floor!), or reserve a spot.</p>
 						<div className="grid gap-4">
-							{MOCK_COURTS.map((c) => (
-								<div
-									key={c.id}
-									className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+							{MOCK_COURTS.map((c) => {
+								const queue = courtQueues[c.id] ?? [];
+								const inQueue = myInQueue[c.id];
+								const myPosition = queue.findIndex((e) => e.userId === user?.id) + 1;
+								const roomCode = courtCodes[c.id];
+								const joinUrl = origin && roomCode ? `${origin}/join/${roomCode}` : "";
+								return (
+									<div
+										key={c.id}
+										className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 space-y-4"
+									>
+										<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+											<div>
+												<h2 className="font-semibold text-gray-900 dark:text-white">{c.name}</h2>
+												<p className="text-sm text-gray-500 dark:text-gray-400">{c.address}</p>
+												<p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">{c.courts} courts · {c.rating}★</p>
+											</div>
+											<button
+												type="button"
+												onClick={() => { setSelectedCourt(c.id); setActiveTab("reserve"); }}
+												className="px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold text-sm hover:shadow-md self-start sm:self-center"
+											>
+												Reserve
+											</button>
+										</div>
+										{/* Room code: others scan QR or enter code to join */}
+										{roomCode && (
+											<div className="border-t border-gray-200 dark:border-gray-700 pt-4 flex flex-col sm:flex-row sm:items-start gap-4">
+												<div>
+													<h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Room code</h3>
+													<p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Other players can scan the QR code or enter this code to join this room.</p>
+													<p className="font-mono text-lg font-bold text-gray-900 dark:text-white tracking-wider">{roomCode}</p>
+												</div>
+												{joinUrl && (
+													<div className="flex-shrink-0">
+														<img
+															src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(joinUrl)}`}
+															alt={`QR code to join ${c.name}`}
+															className="rounded-lg border border-gray-200 dark:border-gray-600 w-[120px] h-[120px]"
+														/>
+													</div>
+												)}
+											</div>
+										)}
+										{/* Court queue: digital paddle stack */}
+										<div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+											{(courtAdmins[c.id] ?? []).length > 0 && (
+												<div className="mb-2">
+													<span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Admins: </span>
+													<span className="text-xs text-gray-700 dark:text-gray-300">
+														{(courtAdmins[c.id] ?? []).map((a) => a.userName).join(", ")}
+													</span>
+													{myAdminStatus[c.id] && (
+														<span className="text-emerald-600 dark:text-emerald-400 text-xs font-medium ml-1">(you)</span>
+													)}
+												</div>
+											)}
+											<div className="flex items-center justify-between mb-2">
+												<h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Queue</h3>
+												<span className="text-xs text-gray-500 dark:text-gray-400">{queue.length} in line</span>
+											</div>
+											<p className="text-xs text-gray-500 dark:text-gray-400 mb-2">No need to put your paddle on the floor — join the digital queue.</p>
+											{queue.length > 0 && (
+												<ul className="list-decimal list-inside text-sm text-gray-700 dark:text-gray-300 mb-3 space-y-0.5">
+													{queue.slice(0, 8).map((e) => {
+														const isAdmin = (courtAdmins[c.id] ?? []).some((a) => a.userId === e.userId);
+														return (
+															<li key={e.userId} className="flex items-center gap-2 flex-wrap">
+																<span>
+																	{e.userName}
+																	{e.userId === user?.id && <span className="text-emerald-600 dark:text-emerald-400 ml-1">(you)</span>}
+																	{isAdmin && <span className="text-amber-600 dark:text-amber-400 text-xs ml-1">admin</span>}
+																</span>
+																{myAdminStatus[c.id] && !isAdmin && e.userId !== user?.id && (
+																	<form method="post" className="inline">
+																		<input type="hidden" name="intent" value="makeAdmin" />
+																		<input type="hidden" name="courtId" value={c.id} />
+																		<input type="hidden" name="userId" value={e.userId} />
+																		<button type="submit" className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline">
+																			Make admin
+																		</button>
+																	</form>
+																)}
+															</li>
+														);
+													})}
+													{queue.length > 8 && <li className="text-gray-500">+{queue.length - 8} more</li>}
+												</ul>
+											)}
+											{isLoggedIn ? (
+												inQueue ? (
+													<div className="flex items-center gap-2 flex-wrap">
+														{myPosition > 0 && (
+															<span className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">You're #{myPosition} in line</span>
+														)}
+														<form method="post" className="inline">
+															<input type="hidden" name="intent" value="leaveQueue" />
+															<input type="hidden" name="courtId" value={c.id} />
+															<button type="submit" className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-800">
+																Leave queue
+															</button>
+														</form>
+													</div>
+												) : (
+													<form method="post" className="inline">
+														<input type="hidden" name="intent" value="joinQueue" />
+														<input type="hidden" name="courtId" value={c.id} />
+														<button type="submit" className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500">
+															Join queue
+														</button>
+													</form>
+												)
+											) : (
+												<button
+													type="button"
+													onClick={() => setShowLoginModal(true)}
+													className="text-sm text-emerald-600 dark:text-emerald-400 font-medium hover:underline"
+												>
+													Log in to join queue
+												</button>
+											)}
+										</div>
+									</div>
+								);
+							})}
+						</div>
+					</div>
+				)}
+
+				{/* Coaching / private lessons tab */}
+				{activeTab === "coaching" && (
+					<div className="space-y-6">
+						<h1 className="text-2xl font-bold text-gray-900 dark:text-white">Private lessons & coaching</h1>
+						<p className="text-gray-600 dark:text-gray-400">
+							Find coaches or advertise your own lessons. List your availability, location, and rate.
+						</p>
+
+						{!isLoggedIn && (
+							<div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 text-center">
+								<p className="text-gray-700 dark:text-gray-300 mb-4">Log in to post a coaching listing.</p>
+								<button
+									onClick={() => setShowLoginModal(true)}
+									className="px-6 py-3 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold hover:shadow-md"
 								>
+									Login to post
+								</button>
+							</div>
+						)}
+
+						{isLoggedIn && (
+							<div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
+								<h2 className="font-semibold text-gray-900 dark:text-white mb-4">Post a listing</h2>
+								<form method="post" className="space-y-4">
+									<input type="hidden" name="intent" value="addCoaching" />
 									<div>
-										<h2 className="font-semibold text-gray-900 dark:text-white">{c.name}</h2>
-										<p className="text-sm text-gray-500 dark:text-gray-400">{c.address}</p>
-										<p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">{c.courts} courts · {c.rating}★</p>
+										<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title *</label>
+										<input
+											type="text"
+											name="title"
+											required
+											placeholder="e.g. Private pickleball lessons — all levels"
+											className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+										/>
+									</div>
+									<div>
+										<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+										<textarea
+											name="description"
+											rows={3}
+											placeholder="What you offer, experience, style..."
+											className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm resize-none"
+										/>
+									</div>
+									<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+										<div>
+											<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Location</label>
+											<input
+												type="text"
+												name="location"
+												placeholder="e.g. Downtown Rec, Riverside Park"
+												className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+											/>
+										</div>
+										<div>
+											<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Availability</label>
+											<input
+												type="text"
+												name="availability"
+												placeholder="e.g. Weekends 9am–5pm, weekday evenings"
+												className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+											/>
+										</div>
+									</div>
+									<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+										<div>
+											<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rate</label>
+											<input
+												type="text"
+												name="rate"
+												placeholder="e.g. $50/hr, $30/session"
+												className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+											/>
+										</div>
+										<div>
+											<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Contact</label>
+											<input
+												type="text"
+												name="contactInfo"
+												placeholder="e.g. DM here, or email@example.com"
+												className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+											/>
+										</div>
 									</div>
 									<button
-										onClick={() => { setSelectedCourt(c.id); setActiveTab("reserve"); }}
-										className="px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold text-sm hover:shadow-md self-start sm:self-center"
+										type="submit"
+										className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold text-sm hover:shadow-md"
 									>
-										Reserve
+										Post listing
 									</button>
-								</div>
-							))}
+								</form>
+							</div>
+						)}
+
+						<div className="space-y-4">
+							<h2 className="text-lg font-semibold text-gray-900 dark:text-white">Listings</h2>
+							{coachingListings.length === 0 ? (
+								<p className="text-gray-500 dark:text-gray-400">No coaching listings yet. Be the first to post.</p>
+							) : (
+								<ul className="space-y-4">
+									{coachingListings.map((listing) => (
+										<li
+											key={listing.id}
+											className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm"
+										>
+											<div className="flex items-start justify-between gap-4">
+												<div className="min-w-0 flex-1">
+													<h3 className="font-semibold text-gray-900 dark:text-white">{listing.title}</h3>
+													<p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+														{listing.userName} · {formatTime(listing.createdAt)}
+													</p>
+													{listing.description && (
+														<p className="mt-2 text-gray-700 dark:text-gray-300 text-sm whitespace-pre-wrap">{listing.description}</p>
+													)}
+													<div className="mt-3 flex flex-wrap gap-3 text-sm">
+														{listing.location && (
+															<span className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
+																<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+																	<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+																	<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+																</svg>
+																{listing.location}
+															</span>
+														)}
+														{listing.availability && (
+															<span className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
+																<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+																	<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+																</svg>
+																{listing.availability}
+															</span>
+														)}
+														{listing.rate && (
+															<span className="font-medium text-emerald-600 dark:text-emerald-400">{listing.rate}</span>
+														)}
+													</div>
+													{listing.contactInfo && (
+														<p className="mt-2 text-sm text-gray-600 dark:text-gray-400">Contact: {listing.contactInfo}</p>
+													)}
+												</div>
+												{user?.id === listing.userId && (
+													<form method="post" className="flex-shrink-0">
+														<input type="hidden" name="intent" value="deleteCoaching" />
+														<input type="hidden" name="listingId" value={listing.id} />
+														<button
+															type="submit"
+															className="px-3 py-1.5 rounded-lg text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+														>
+															Remove
+														</button>
+													</form>
+												)}
+											</div>
+										</li>
+									))}
+								</ul>
+							)}
 						</div>
 					</div>
 				)}
@@ -522,6 +910,42 @@ export default function Home() {
 										))}
 									</div>
 								</div>
+								{selectedCourt && (
+									<>
+										{courtCodes[selectedCourt] && origin && (
+											<div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 p-4 flex items-center gap-4">
+												<div>
+													<p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Share room code — others scan to join</p>
+													<p className="font-mono font-bold text-gray-900 dark:text-white tracking-wider">{courtCodes[selectedCourt]}</p>
+												</div>
+												<img
+													src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(`${origin}/join/${courtCodes[selectedCourt]}`)}`}
+													alt="QR code to join room"
+													className="rounded-lg border border-gray-200 dark:border-gray-600 w-[80px] h-[80px] flex-shrink-0"
+												/>
+											</div>
+										)}
+										<div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 p-4">
+											<p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Or join the queue (no paddles on the floor)</p>
+											{(courtQueues[selectedCourt] ?? []).length > 0 && (
+												<p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{(courtQueues[selectedCourt] ?? []).length} in line</p>
+											)}
+											{myInQueue[selectedCourt] ? (
+												<form method="post">
+													<input type="hidden" name="intent" value="leaveQueue" />
+													<input type="hidden" name="courtId" value={selectedCourt} />
+													<button type="submit" className="text-sm text-gray-600 dark:text-gray-400 hover:underline">Leave queue</button>
+												</form>
+											) : (
+												<form method="post">
+													<input type="hidden" name="intent" value="joinQueue" />
+													<input type="hidden" name="courtId" value={selectedCourt} />
+													<button type="submit" className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500">Join queue</button>
+												</form>
+											)}
+										</div>
+									</>
+								)}
 								<div>
 									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Date</label>
 									<div className="flex gap-2">
