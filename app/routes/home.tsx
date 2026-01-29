@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { Route } from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {
 	return [
-		{ title: "Pickleball - The Fastest Growing Sport in America" },
-		{ name: "description", content: "Join the pickleball revolution. Find courts, connect with players, and elevate your game." },
+		{ title: "Pickleball - Connect, Find Courts, Reserve" },
+		{ name: "description", content: "The pickleball community. Chat, find courts, and reserve spots." },
 	];
 }
 
@@ -13,9 +13,9 @@ export function loader({ context }: Route.LoaderArgs) {
 }
 
 const MOCK_COURTS = [
-	{ id: "1", name: "Downtown Community Center", courts: 4, rating: "4.8" },
-	{ id: "2", name: "Riverside Park", courts: 2, rating: "4.6" },
-	{ id: "3", name: "Sunset Rec Complex", courts: 6, rating: "4.9" },
+	{ id: "1", name: "Downtown Community Center", courts: 4, rating: "4.8", address: "123 Main St" },
+	{ id: "2", name: "Riverside Park", courts: 2, rating: "4.6", address: "456 River Rd" },
+	{ id: "3", name: "Sunset Rec Complex", courts: 6, rating: "4.9", address: "789 Sunset Blvd" },
 ];
 
 const TIME_SLOTS = [
@@ -23,19 +23,100 @@ const TIME_SLOTS = [
 	"1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM",
 ];
 
-// Simulate which slots are already taken (random-ish but stable)
 function isSlotTaken(slotIndex: number, courtId: string): boolean {
 	const hash = (courtId + slotIndex) % 5;
 	return hash === 0 || hash === 2;
 }
 
+const STORAGE_POSTS = "pickleball_posts";
+
+type Comment = { id: string; authorName: string; content: string; createdAt: string };
+type Post = {
+	id: string;
+	authorId: string;
+	authorName: string;
+	content: string;
+	createdAt: string;
+	likes: number;
+	likedBy: string[];
+	comments: Comment[];
+};
+
+const SEED_POSTS: Post[] = [
+	{
+		id: "seed-1",
+		authorId: "u1",
+		authorName: "Sarah",
+		content: "Looking for doubles partners at Downtown Community Center this Saturday 10am. Who's in? 🏓",
+		createdAt: new Date(Date.now() - 3600000).toISOString(),
+		likes: 12,
+		likedBy: [],
+		comments: [
+			{ id: "c1", authorName: "Mike", content: "I'm down! See you there.", createdAt: new Date(Date.now() - 3000000).toISOString() },
+			{ id: "c2", authorName: "Jen", content: "Count me in too!", createdAt: new Date(Date.now() - 2400000).toISOString() },
+		],
+	},
+	{
+		id: "seed-2",
+		authorId: "u2",
+		authorName: "Mike",
+		content: "Riverside Park courts are freshly resurfaced. Played there yesterday — so smooth!",
+		createdAt: new Date(Date.now() - 86400000).toISOString(),
+		likes: 28,
+		likedBy: [],
+		comments: [
+			{ id: "c3", authorName: "Alex", content: "Nice, need to check it out.", createdAt: new Date(Date.now() - 80000000).toISOString() },
+		],
+	},
+	{
+		id: "seed-3",
+		authorId: "u3",
+		authorName: "Jen",
+		content: "Just reserved a spot at Sunset Rec for tomorrow 3pm. Anyone want to join? We have 3 so far.",
+		createdAt: new Date(Date.now() - 7200000).toISOString(),
+		likes: 5,
+		likedBy: [],
+		comments: [],
+	},
+];
+
+function loadPosts(): Post[] {
+	try {
+		const raw = localStorage.getItem(STORAGE_POSTS);
+		if (raw) {
+			const parsed: Post[] = JSON.parse(raw);
+			return parsed.map((p) => ({ ...p, likedBy: p.likedBy ?? [], comments: p.comments ?? [] }));
+		}
+		localStorage.setItem(STORAGE_POSTS, JSON.stringify(SEED_POSTS));
+		return SEED_POSTS;
+	} catch {
+		return SEED_POSTS;
+	}
+}
+
+function formatTime(iso: string) {
+	const d = new Date(iso);
+	const now = new Date();
+	const diff = now.getTime() - d.getTime();
+	if (diff < 60000) return "Just now";
+	if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+	if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+	if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
+	return d.toLocaleDateString();
+}
+
 export default function Home() {
+	const [activeTab, setActiveTab] = useState<"feed" | "courts" | "reserve">("feed");
+	const [posts, setPosts] = useState<Post[]>([]);
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
 	const [user, setUser] = useState<{ email: string; name: string } | null>(null);
 	const [showLoginModal, setShowLoginModal] = useState(false);
 	const [loginEmail, setLoginEmail] = useState("");
 	const [loginPassword, setLoginPassword] = useState("");
 	const [isLoggingIn, setIsLoggingIn] = useState(false);
+	const [newPostContent, setNewPostContent] = useState("");
+	const [isPosting, setIsPosting] = useState(false);
+	const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
 	const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
 	const [selectedDate, setSelectedDate] = useState<string>("");
 	const [selectedTime, setSelectedTime] = useState<string | null>(null);
@@ -43,8 +124,8 @@ export default function Home() {
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [reservationId, setReservationId] = useState<string>("");
 
-	// Check localStorage on mount
 	useEffect(() => {
+		setPosts(loadPosts());
 		const savedUser = localStorage.getItem("pickleball_user");
 		if (savedUser) {
 			const userData = JSON.parse(savedUser);
@@ -53,20 +134,17 @@ export default function Home() {
 		}
 	}, []);
 
+	const savePosts = useCallback((next: Post[]) => {
+		setPosts(next);
+		localStorage.setItem(STORAGE_POSTS, JSON.stringify(next));
+	}, []);
+
 	const handleLogin = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!loginEmail.trim()) return;
-		
 		setIsLoggingIn(true);
-		// Simulate API call
 		await new Promise((r) => setTimeout(r, 1000));
-		
-		// Demo: accept any email/password
-		const userData = {
-			email: loginEmail,
-			name: loginEmail.split("@")[0] || "Player",
-		};
-		
+		const userData = { email: loginEmail, name: loginEmail.split("@")[0] || "Player" };
 		localStorage.setItem("pickleball_user", JSON.stringify(userData));
 		setUser(userData);
 		setIsLoggedIn(true);
@@ -86,11 +164,63 @@ export default function Home() {
 		setIsSuccess(false);
 	};
 
+	const handleAddPost = async () => {
+		if (!user || !newPostContent.trim()) return;
+		setIsPosting(true);
+		await new Promise((r) => setTimeout(r, 400));
+		const post: Post = {
+			id: `post-${Date.now()}`,
+			authorId: user.email,
+			authorName: user.name,
+			content: newPostContent.trim(),
+			createdAt: new Date().toISOString(),
+			likes: 0,
+			likedBy: [],
+			comments: [],
+		};
+		savePosts([post, ...posts]);
+		setNewPostContent("");
+		setIsPosting(false);
+	};
+
+	const handleLike = (postId: string) => {
+		if (!user) {
+			setShowLoginModal(true);
+			return;
+		}
+		const next = posts.map((p) => {
+			if (p.id !== postId) return p;
+			const liked = p.likedBy.includes(user.email);
+			return {
+				...p,
+				likes: liked ? p.likes - 1 : p.likes + 1,
+				likedBy: liked ? p.likedBy.filter((e) => e !== user.email) : [...p.likedBy, user.email],
+			};
+		});
+		savePosts(next);
+	};
+
+	const handleAddComment = (postId: string) => {
+		const content = (commentInputs[postId] || "").trim();
+		if (!user || !content) return;
+		const next = posts.map((p) => {
+			if (p.id !== postId) return p;
+			return {
+				...p,
+				comments: [
+					...p.comments,
+					{ id: `c-${Date.now()}`, authorName: user.name, content, createdAt: new Date().toISOString() },
+				],
+			};
+		});
+		savePosts(next);
+		setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
+	};
+
 	const handleReserve = async () => {
 		if (!selectedCourt || !selectedDate || !selectedTime) return;
 		setIsSubmitting(true);
 		setReservationId("");
-		// Simulate API call
 		await new Promise((r) => setTimeout(r, 1500));
 		setReservationId(`PB-${Date.now().toString(36).toUpperCase().slice(-6)}`);
 		setIsSubmitting(false);
@@ -110,100 +240,94 @@ export default function Home() {
 	const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
 	return (
-		<div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
+		<div className="min-h-screen bg-gray-50 dark:bg-gray-950">
 			{/* Login Modal */}
 			{showLoginModal && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
 					<div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-8 relative">
 						<button
 							onClick={() => setShowLoginModal(false)}
-							className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+							className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
 						>
 							<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
 							</svg>
 						</button>
-						<div className="mb-6">
-							<h2 className="text-3xl font-black text-gray-900 dark:text-white mb-2">
-								Welcome Back
-							</h2>
-							<p className="text-gray-600 dark:text-gray-400">
-								Demo login — enter any email and password to continue
-							</p>
-						</div>
+						<h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Welcome back</h2>
+						<p className="text-gray-600 dark:text-gray-400 text-sm mb-6">Demo — any email and password work.</p>
 						<form onSubmit={handleLogin} className="space-y-4">
-							<div>
-								<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-									Email
-								</label>
-								<input
-									type="email"
-									value={loginEmail}
-									onChange={(e) => setLoginEmail(e.target.value)}
-									placeholder="player@example.com"
-									required
-									className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 dark:focus:border-emerald-500 focus:outline-none transition-colors"
-								/>
-							</div>
-							<div>
-								<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-									Password
-								</label>
-								<input
-									type="password"
-									value={loginPassword}
-									onChange={(e) => setLoginPassword(e.target.value)}
-									placeholder="••••••••"
-									required
-									className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 dark:focus:border-emerald-500 focus:outline-none transition-colors"
-								/>
-							</div>
+							<input
+								type="email"
+								value={loginEmail}
+								onChange={(e) => setLoginEmail(e.target.value)}
+								placeholder="Email"
+								required
+								className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+							/>
+							<input
+								type="password"
+								value={loginPassword}
+								onChange={(e) => setLoginPassword(e.target.value)}
+								placeholder="Password"
+								required
+								className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 focus:outline-none"
+							/>
 							<button
 								type="submit"
 								disabled={isLoggingIn}
-								className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-lg disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all"
+								className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold disabled:opacity-50"
 							>
-								{isLoggingIn ? (
-									<span className="flex items-center justify-center gap-2">
-										<svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
-											<circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-											<path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-										</svg>
-										Logging in…
-									</span>
-								) : (
-									"Login"
-								)}
+								{isLoggingIn ? "Logging in…" : "Login"}
 							</button>
 						</form>
-						<div className="mt-6 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl">
-							<p className="text-sm text-emerald-700 dark:text-emerald-400">
-								<strong>Demo Mode:</strong> Any email and password will work. No real authentication required.
-							</p>
-						</div>
 					</div>
 				</div>
 			)}
 
-			{/* Navigation */}
-			<nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 border-b border-gray-200/50 dark:border-gray-800/50">
-				<div className="container mx-auto px-6 py-4">
+			{/* Top nav */}
+			<nav className="sticky top-0 z-40 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+				<div className="container mx-auto px-4 py-3 max-w-4xl">
 					<div className="flex items-center justify-between">
-						<div className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+						<div className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
 							Pickleball
 						</div>
-						<div className="hidden md:flex items-center gap-8">
-							<a href="#reserve" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Reserve Court</a>
-							<a href="#features" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Features</a>
-							<a href="#about" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">About</a>
+						<div className="flex items-center gap-2 sm:gap-4">
+							<button
+								onClick={() => setActiveTab("feed")}
+								className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+									activeTab === "feed"
+										? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
+										: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+								}`}
+							>
+								Feed
+							</button>
+							<button
+								onClick={() => setActiveTab("courts")}
+								className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+									activeTab === "courts"
+										? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
+										: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+								}`}
+							>
+								Courts
+							</button>
+							<button
+								onClick={() => setActiveTab("reserve")}
+								className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+									activeTab === "reserve"
+										? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
+										: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+								}`}
+							>
+								Reserve
+							</button>
 							{isLoggedIn ? (
-								<div className="flex items-center gap-4">
-									<span className="text-sm text-gray-700 dark:text-gray-300">
-										{user?.name}
-									</span>
+								<div className="flex items-center gap-2 pl-2 border-l border-gray-200 dark:border-gray-700">
+									<span className="text-sm text-gray-600 dark:text-gray-400 hidden sm:inline">{user?.name}</span>
 									<button
 										onClick={handleLogout}
-										className="px-6 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 transition-all"
+										className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
 									>
 										Logout
 									</button>
@@ -211,25 +335,7 @@ export default function Home() {
 							) : (
 								<button
 									onClick={() => setShowLoginModal(true)}
-									className="px-6 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full font-semibold hover:shadow-lg hover:scale-105 transition-all"
-								>
-									Login
-								</button>
-							)}
-						</div>
-						{/* Mobile login button */}
-						<div className="md:hidden">
-							{isLoggedIn ? (
-								<button
-									onClick={handleLogout}
-									className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-sm font-semibold"
-								>
-									Logout
-								</button>
-							) : (
-								<button
-									onClick={() => setShowLoginModal(true)}
-									className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full text-sm font-semibold"
+									className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-90"
 								>
 									Login
 								</button>
@@ -239,179 +345,150 @@ export default function Home() {
 				</div>
 			</nav>
 
-			{/* Hero Section */}
-			<section className="pt-32 pb-20 px-6">
-				<div className="container mx-auto max-w-6xl">
-					<div className="text-center mb-16">
-						<div className="inline-block mb-6 px-4 py-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-full text-emerald-700 dark:text-emerald-400 text-sm font-semibold">
-							America's Fastest Growing Sport
-						</div>
-						<h1 className="text-6xl md:text-8xl font-black mb-6 leading-tight">
-							<span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent animate-gradient">
-								Serve. Rally.
-							</span>
-							<br />
-							<span className="text-gray-900 dark:text-white">Win Together.</span>
-						</h1>
-						<p className="text-xl md:text-2xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-10 leading-relaxed">
-							Connect with players, discover courts, and join the community that's taking the world by storm.
-						</p>
-						<div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-							<a href="#reserve" className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-lg font-bold rounded-full hover:shadow-2xl hover:scale-105 transition-all inline-block text-center">
-								Reserve a Court
-							</a>
-							<button className="px-8 py-4 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-lg font-semibold rounded-full border-2 border-gray-300 dark:border-gray-700 hover:border-emerald-600 dark:hover:border-emerald-500 transition-all">
-								Watch How It Works
-							</button>
-						</div>
-					</div>
+			<main className="container mx-auto px-4 py-6 max-w-4xl min-h-[80vh]">
+				{/* Feed tab */}
+				{activeTab === "feed" && (
+					<div className="space-y-6">
+						{isLoggedIn && (
+							<div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+								<textarea
+									value={newPostContent}
+									onChange={(e) => setNewPostContent(e.target.value)}
+									placeholder="What's on your mind? Ask for partners, share court tips..."
+									rows={3}
+									className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-500 focus:border-emerald-500 focus:outline-none resize-none"
+								/>
+								<div className="mt-3 flex justify-end">
+									<button
+										onClick={handleAddPost}
+										disabled={!newPostContent.trim() || isPosting}
+										className="px-5 py-2 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold text-sm disabled:opacity-50 hover:shadow-md"
+									>
+										{isPosting ? "Posting…" : "Post"}
+									</button>
+								</div>
+							</div>
+						)}
 
-					{/* Hero Visual */}
-					<div className="relative mt-20">
-						<div className="relative aspect-video rounded-3xl overflow-hidden shadow-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-gray-800 dark:to-gray-900 border-4 border-white dark:border-gray-700">
-							<div className="absolute inset-0 flex items-center justify-center">
-								<div className="text-center">
-									<div className="w-32 h-32 mx-auto mb-6 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-xl">
-										<svg className="w-16 h-16 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-											<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-										</svg>
+						<div className="space-y-4">
+							{posts.map((post) => (
+								<article
+									key={post.id}
+									className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm"
+								>
+									<div className="p-4">
+										<div className="flex items-center gap-3 mb-3">
+											<div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
+												{post.authorName.slice(0, 1).toUpperCase()}
+											</div>
+											<div>
+												<div className="font-semibold text-gray-900 dark:text-white">{post.authorName}</div>
+												<div className="text-xs text-gray-500 dark:text-gray-400">{formatTime(post.createdAt)}</div>
+											</div>
+										</div>
+										<p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{post.content}</p>
+										<div className="flex items-center gap-4 mt-4">
+											<button
+												onClick={() => handleLike(post.id)}
+												className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+													user && post.likedBy.includes(user.email)
+														? "text-emerald-600 dark:text-emerald-400"
+														: "text-gray-500 dark:text-gray-400 hover:text-emerald-600"
+												}`}
+											>
+												<svg className="w-5 h-5" fill={user && post.likedBy.includes(user.email) ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+													<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+												</svg>
+												{post.likes}
+											</button>
+											<span className="text-sm text-gray-500 dark:text-gray-400">{post.comments.length} comments</span>
+										</div>
 									</div>
-									<div className="grid grid-cols-3 gap-4 max-w-md mx-auto">
-										{[...Array(3)].map((_, i) => (
-											<div key={i} className="h-24 bg-white/80 dark:bg-gray-800/80 rounded-xl border-2 border-emerald-200 dark:border-emerald-800"></div>
-										))}
+									{/* Comments */}
+									{post.comments.length > 0 && (
+										<div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 px-4 py-3 space-y-3">
+											{post.comments.map((c) => (
+												<div key={c.id} className="flex gap-2">
+													<span className="font-medium text-gray-900 dark:text-white text-sm">{c.authorName}:</span>
+													<span className="text-gray-700 dark:text-gray-300 text-sm">{c.content}</span>
+													<span className="text-xs text-gray-500 ml-auto">{formatTime(c.createdAt)}</span>
+												</div>
+											))}
+										</div>
+									)}
+									{isLoggedIn && (
+										<div className="border-t border-gray-200 dark:border-gray-700 p-3 flex gap-2">
+											<input
+												value={commentInputs[post.id] ?? ""}
+												onChange={(e) => setCommentInputs((prev) => ({ ...prev, [post.id]: e.target.value }))}
+												onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleAddComment(post.id))}
+												placeholder="Write a comment..."
+												className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
+											/>
+											<button
+												onClick={() => handleAddComment(post.id)}
+												disabled={!(commentInputs[post.id] ?? "").trim()}
+												className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium disabled:opacity-50 hover:bg-emerald-500"
+											>
+												Reply
+											</button>
+										</div>
+									)}
+								</article>
+							))}
+						</div>
+					</div>
+				)}
+
+				{/* Courts tab */}
+				{activeTab === "courts" && (
+					<div className="space-y-6">
+						<h1 className="text-2xl font-bold text-gray-900 dark:text-white">Find courts</h1>
+						<p className="text-gray-600 dark:text-gray-400">Browse courts and reserve a spot when you're ready.</p>
+						<div className="grid gap-4">
+							{MOCK_COURTS.map((c) => (
+								<div
+									key={c.id}
+									className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+								>
+									<div>
+										<h2 className="font-semibold text-gray-900 dark:text-white">{c.name}</h2>
+										<p className="text-sm text-gray-500 dark:text-gray-400">{c.address}</p>
+										<p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">{c.courts} courts · {c.rating}★</p>
 									</div>
+									<button
+										onClick={() => { setSelectedCourt(c.id); setActiveTab("reserve"); }}
+										className="px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold text-sm hover:shadow-md self-start sm:self-center"
+									>
+										Reserve
+									</button>
 								</div>
-							</div>
+							))}
 						</div>
 					</div>
-				</div>
-			</section>
+				)}
 
-			{/* Stats Section */}
-			<section className="py-16 px-6 bg-white/50 dark:bg-gray-900/50">
-				<div className="container mx-auto max-w-6xl">
-					<div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-						{[
-							{ number: "8.9M", label: "Active Players" },
-							{ number: "50K+", label: "Courts Nationwide" },
-							{ number: "159%", label: "Growth Rate" },
-							{ number: "4.8★", label: "Average Rating" },
-						].map((stat, i) => (
-							<div key={i} className="text-center">
-								<div className="text-4xl md:text-5xl font-black bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent mb-2">
-									{stat.number}
-								</div>
-								<div className="text-gray-600 dark:text-gray-400 font-medium">{stat.label}</div>
+				{/* Reserve tab */}
+				{activeTab === "reserve" && (
+					<div className="space-y-6">
+						<h1 className="text-2xl font-bold text-gray-900 dark:text-white">Reserve a court</h1>
+						<p className="text-gray-600 dark:text-gray-400">Pick a court, date, and time. Demo — no real booking.</p>
+
+						{!isLoggedIn ? (
+							<div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 text-center">
+								<p className="text-gray-700 dark:text-gray-300 mb-6">Log in to reserve a spot.</p>
+								<button
+									onClick={() => setShowLoginModal(true)}
+									className="px-6 py-3 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold hover:shadow-md"
+								>
+									Login to reserve
+								</button>
 							</div>
-						))}
-					</div>
-				</div>
-			</section>
-
-			{/* Features Section */}
-			<section id="features" className="py-24 px-6">
-				<div className="container mx-auto max-w-6xl">
-					<div className="text-center mb-16">
-						<h2 className="text-5xl md:text-6xl font-black mb-4 text-gray-900 dark:text-white">
-							Everything You Need
-						</h2>
-						<p className="text-xl text-gray-600 dark:text-gray-300">
-							Your complete pickleball companion
-						</p>
-					</div>
-
-					<div className="grid md:grid-cols-3 gap-8">
-						{[
-							{
-								icon: (
-									<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-										<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-									</svg>
-								),
-								title: "Find Courts",
-								description: "Discover courts near you with real-time availability and ratings from the community.",
-							},
-							{
-								icon: (
-									<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-									</svg>
-								),
-								title: "Connect Players",
-								description: "Join matches, find partners, and build your pickleball network.",
-							},
-							{
-								icon: (
-									<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-									</svg>
-								),
-								title: "Track Progress",
-								description: "Monitor your stats, improve your game, and climb the rankings.",
-							},
-						].map((feature, i) => (
-							<div
-								key={i}
-								className="p-8 bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-700 hover:border-emerald-500 dark:hover:border-emerald-500 transition-all hover:shadow-xl group"
-							>
-								<div className="w-16 h-16 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white mb-6 group-hover:scale-110 transition-transform">
-									{feature.icon}
-								</div>
-								<h3 className="text-2xl font-bold mb-3 text-gray-900 dark:text-white">
-									{feature.title}
-								</h3>
-								<p className="text-gray-600 dark:text-gray-300 leading-relaxed">
-									{feature.description}
-								</p>
-							</div>
-						))}
-					</div>
-				</div>
-			</section>
-
-			{/* Reserve Court Simulation */}
-			<section id="reserve" className="py-24 px-6">
-				<div className="container mx-auto max-w-4xl">
-					<div className="text-center mb-12">
-						<h2 className="text-4xl md:text-5xl font-black mb-4 text-gray-900 dark:text-white">
-							Reserve a Court
-						</h2>
-						<p className="text-xl text-gray-600 dark:text-gray-300">
-							Pick a court, date, and time. This is a simulation — no real booking is made.
-						</p>
-					</div>
-
-					{!isLoggedIn ? (
-						<div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-700 shadow-xl p-12 text-center">
-							<div className="w-20 h-20 mx-auto mb-6 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-								<svg className="w-10 h-10 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-									<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-								</svg>
-							</div>
-							<h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">
-								Login Required
-							</h3>
-							<p className="text-gray-600 dark:text-gray-300 mb-8 max-w-md mx-auto">
-								Please log in to reserve a court spot. This is a demo — you can use any email and password.
-							</p>
-							<button
-								onClick={() => setShowLoginModal(true)}
-								className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-lg font-bold rounded-full hover:shadow-2xl hover:scale-105 transition-all"
-							>
-								Login to Reserve
-							</button>
-						</div>
-					) : !isSuccess ? (
-						<div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
-							<div className="p-6 md:p-8 space-y-6">
-								{/* Court selection */}
+						) : !isSuccess ? (
+							<div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 space-y-6">
 								<div>
-									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-										Court
-									</label>
-									<div className="grid gap-3">
+									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Court</label>
+									<div className="grid gap-2">
 										{MOCK_COURTS.map((c) => (
 											<button
 												key={c.id}
@@ -420,31 +497,23 @@ export default function Home() {
 												className={`flex items-center justify-between p-4 rounded-xl border-2 text-left transition-all ${
 													selectedCourt === c.id
 														? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-500"
-														: "border-gray-200 dark:border-gray-600 hover:border-emerald-300 dark:hover:border-emerald-700"
+														: "border-gray-200 dark:border-gray-600 hover:border-emerald-300"
 												}`}
 											>
 												<span className="font-medium text-gray-900 dark:text-white">{c.name}</span>
-												<span className="text-sm text-gray-500 dark:text-gray-400">
-													{c.courts} courts · {c.rating}★
-												</span>
+												<span className="text-sm text-gray-500 dark:text-gray-400">{c.courts} courts · {c.rating}★</span>
 											</button>
 										))}
 									</div>
 								</div>
-
-								{/* Date */}
 								<div>
-									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-										Date
-									</label>
-									<div className="flex gap-3 flex-wrap">
+									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Date</label>
+									<div className="flex gap-2">
 										<button
 											type="button"
 											onClick={() => setSelectedDate(today)}
-											className={`px-4 py-2 rounded-lg border-2 font-medium transition-all ${
-												selectedDate === today
-													? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
-													: "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-emerald-300"
+											className={`px-4 py-2 rounded-lg border-2 font-medium text-sm ${
+												selectedDate === today ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" : "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300"
 											}`}
 										>
 											Today
@@ -452,22 +521,16 @@ export default function Home() {
 										<button
 											type="button"
 											onClick={() => setSelectedDate(tomorrow)}
-											className={`px-4 py-2 rounded-lg border-2 font-medium transition-all ${
-												selectedDate === tomorrow
-													? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
-													: "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-emerald-300"
+											className={`px-4 py-2 rounded-lg border-2 font-medium text-sm ${
+												selectedDate === tomorrow ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" : "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300"
 											}`}
 										>
 											Tomorrow
 										</button>
 									</div>
 								</div>
-
-								{/* Time slots */}
 								<div>
-									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-										Time
-									</label>
+									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Time</label>
 									<div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
 										{TIME_SLOTS.map((time, i) => {
 											const taken = selectedCourt ? isSlotTaken(i, selectedCourt) : false;
@@ -480,7 +543,7 @@ export default function Home() {
 													onClick={() => !taken && setSelectedTime(time)}
 													className={`py-2 px-3 rounded-lg border-2 text-sm font-medium transition-all ${
 														taken
-															? "border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed line-through"
+															? "border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed line-through"
 															: isSelected
 																? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
 																: "border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-emerald-300"
@@ -491,11 +554,7 @@ export default function Home() {
 											);
 										})}
 									</div>
-									<p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-										Grayed-out slots are already booked (simulated).
-									</p>
 								</div>
-
 								<button
 									type="button"
 									onClick={handleReserve}
@@ -515,75 +574,43 @@ export default function Home() {
 									)}
 								</button>
 							</div>
-						</div>
-					) : (
-						<div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-emerald-500 shadow-xl p-8 md:p-12 text-center">
-							<div className="w-20 h-20 mx-auto mb-6 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-								<svg className="w-10 h-10 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-									<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-								</svg>
-							</div>
-							<h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-								You're all set!
-							</h3>
-							<p className="text-gray-600 dark:text-gray-300 mb-6">
-								This was a simulation. In the full app, your reservation would be confirmed.
-							</p>
-							<div className="bg-gray-100 dark:bg-gray-700/50 rounded-xl p-6 text-left max-w-sm mx-auto mb-8">
-								<div className="text-sm text-gray-500 dark:text-gray-400">Confirmation #</div>
-								<div className="font-mono font-bold text-gray-900 dark:text-white">{reservationId}</div>
-								<div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300">
-									{court?.name}<br />
-									{selectedDate === today ? "Today" : "Tomorrow"} at {selectedTime}
+						) : (
+							<div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-emerald-500 p-8 text-center">
+								<div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+									<svg className="w-8 h-8 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+										<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+									</svg>
 								</div>
+								<h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">You're all set!</h2>
+								<p className="text-gray-600 dark:text-gray-300 mb-4 text-sm">Demo only — no real booking.</p>
+								<div className="bg-gray-100 dark:bg-gray-700/50 rounded-xl p-4 text-left max-w-sm mx-auto mb-6 text-sm">
+									<div className="text-gray-500 dark:text-gray-400">Confirmation #</div>
+									<div className="font-mono font-bold text-gray-900 dark:text-white">{reservationId}</div>
+									<div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300">
+										{court?.name}<br />
+										{selectedDate === today ? "Today" : "Tomorrow"} at {selectedTime}
+									</div>
+								</div>
+								<button
+									type="button"
+									onClick={resetSimulation}
+									className="px-5 py-2.5 rounded-full border-2 border-emerald-600 dark:border-emerald-500 text-emerald-600 dark:text-emerald-400 font-semibold text-sm hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+								>
+									Reserve another
+								</button>
 							</div>
-							<button
-								type="button"
-								onClick={resetSimulation}
-								className="px-6 py-3 rounded-full border-2 border-emerald-600 dark:border-emerald-500 text-emerald-600 dark:text-emerald-400 font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
-							>
-								Reserve another spot
-							</button>
-						</div>
-					) : null}
-				</div>
-			</section>
-
-			{/* CTA Section */}
-			<section className="py-24 px-6">
-				<div className="container mx-auto max-w-4xl">
-					<div className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-600 p-12 md:p-16 text-center text-white shadow-2xl">
-						<div className="absolute inset-0 bg-black/10"></div>
-						<div className="relative z-10">
-							<h2 className="text-4xl md:text-6xl font-black mb-6">
-								Ready to Play?
-							</h2>
-							<p className="text-xl md:text-2xl mb-10 opacity-90">
-								Join thousands of players and start your pickleball journey today.
-							</p>
-							<button className="px-10 py-5 bg-white text-emerald-600 text-lg font-bold rounded-full hover:shadow-2xl hover:scale-105 transition-all">
-								Get Started Free
-							</button>
-						</div>
+						)}
 					</div>
-				</div>
-			</section>
+				)}
+			</main>
 
-			{/* Footer */}
-			<footer className="py-12 px-6 border-t border-gray-200 dark:border-gray-800">
-				<div className="container mx-auto max-w-6xl">
-					<div className="flex flex-col md:flex-row justify-between items-center gap-6">
-						<div className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-							Pickleball
-						</div>
-						<div className="flex gap-6 text-gray-600 dark:text-gray-400">
-							<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Privacy</a>
-							<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Terms</a>
-							<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Contact</a>
-						</div>
-					</div>
-					<div className="mt-8 text-center text-gray-500 dark:text-gray-500 text-sm">
-						© 2026 Pickleball. All rights reserved.
+			<footer className="border-t border-gray-200 dark:border-gray-800 py-6 mt-12">
+				<div className="container mx-auto px-4 max-w-4xl flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+					<span className="font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">Pickleball</span>
+					<div className="flex gap-6">
+						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">Privacy</a>
+						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">Terms</a>
+						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">Contact</a>
 					</div>
 				</div>
 			</footer>
