@@ -1,5 +1,6 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/auth.oauth.google";
+import { oauthStateCookie } from "~/lib/db.server";
 
 export function loader({ context }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
@@ -16,5 +17,7 @@ export function loader({ context }: Route.LoaderArgs) {
 	url.searchParams.set("response_type", "code");
 	url.searchParams.set("scope", "openid email profile");
 	url.searchParams.set("state", state);
-	return redirect(url.toString());
+	return redirect(url.toString(), {
+		headers: { "Set-Cookie": oauthStateCookie(state) },
+	});
 }

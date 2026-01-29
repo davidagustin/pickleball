@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link, useLoaderData, useActionData, useFetcher } from "react-router";
 import { redirect } from "react-router";
 import type { Route } from "./+types/home";
+import type { Post } from "~/lib/db.server";
 import {
-	getSessionToken,
-	getSessionUser,
+	getOptionalUser,
 	getOrCreateDemoUser,
 	createSession,
 	sessionCookie,
@@ -16,11 +16,11 @@ import {
 	getQueuesForCourts,
 	getCodesForCourts,
 	getAdminsForCourts,
+	getMyQueueAndAdminStatusForCourts,
 	isCourtAdmin,
 	addCourtAdmin,
 	joinCourtQueue,
 	leaveCourtQueue,
-	isInQueue,
 	getCoachingListings,
 	createCoachingListing,
 	deleteCoachingListing,
@@ -54,24 +54,19 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID },
 		};
 	}
-	const cookieHeader = request.headers.get("Cookie");
-	const token = getSessionToken(cookieHeader);
-	const user = await getSessionUser(db, token);
+	const user = await getOptionalUser(db, request);
 	const posts = await getPosts(db, user?.id ?? null);
 	const users = await getUsers(db, 50);
 	const courtsFromDb = await getCourts(db, { limit: 50 });
 	const courtIds = courtsFromDb.length > 0 ? courtsFromDb.map((c) => c.id) : COURT_IDS;
-	const courtQueues = await getQueuesForCourts(db, courtIds);
-	const courtCodes = await getCodesForCourts(db, courtIds);
-	const courtAdmins = await getAdminsForCourts(db, courtIds);
-	const myInQueue: Record<string, boolean> = {};
-	const myAdminStatus: Record<string, boolean> = {};
-	if (user) {
-		for (const cid of courtIds) {
-			myInQueue[cid] = await isInQueue(db, cid, user.id);
-			myAdminStatus[cid] = await isCourtAdmin(db, cid, user.id);
-		}
-	}
+	const [courtQueues, courtCodes, courtAdmins, queueAndAdmin] = await Promise.all([
+		getQueuesForCourts(db, courtIds),
+		getCodesForCourts(db, courtIds),
+		getAdminsForCourts(db, courtIds),
+		user ? getMyQueueAndAdminStatusForCourts(db, user.id, courtIds) : Promise.resolve({ inQueue: {} as Record<string, boolean>, isAdmin: {} as Record<string, boolean> }),
+	]);
+	const myInQueue = queueAndAdmin.inQueue;
+	const myAdminStatus = queueAndAdmin.isAdmin;
 	const coachingListings = await getCoachingListings(db, 100);
 	const origin = new URL(request.url).origin;
 	return {
@@ -110,9 +105,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "addPost" || intent === "like" || intent === "addComment") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const user = await getSessionUser(db, token);
+		const user = await getOptionalUser(db, request);
 		if (!user) return { error: "Login required" };
 
 		if (intent === "addPost") {
@@ -139,9 +132,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "joinQueue" || intent === "leaveQueue") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const user = await getSessionUser(db, token);
+		const user = await getOptionalUser(db, request);
 		if (!user) return { error: "Login required" };
 		const courtId = formData.get("courtId") as string;
 		if (!courtId) return { error: "Invalid court" };
@@ -151,9 +142,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "makeAdmin") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const currentUser = await getSessionUser(db, token);
+		const currentUser = await getOptionalUser(db, request);
 		if (!currentUser) return { error: "Login required" };
 		const courtId = formData.get("courtId") as string;
 		const targetUserId = formData.get("userId") as string;
@@ -165,9 +154,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "addCoaching") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const user = await getSessionUser(db, token);
+		const user = await getOptionalUser(db, request);
 		if (!user) return { error: "Login required" };
 		const title = (formData.get("title") as string)?.trim();
 		if (!title) return { error: "Title required" };
@@ -183,9 +170,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "deleteCoaching") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const user = await getSessionUser(db, token);
+		const user = await getOptionalUser(db, request);
 		if (!user) return { error: "Login required" };
 		const listingId = formData.get("listingId") as string;
 		if (!listingId) return { error: "Listing ID required" };
@@ -226,21 +211,9 @@ function formatTime(iso: string) {
 
 export default function Home() {
 	const loaderData = useLoaderData<typeof loader>();
-	const { user: loaderUser, posts: loaderPosts, courtQueues = {}, courtCodes = {}, courtAdmins = {}, myInQueue = {}, myAdminStatus = {}, coachingListings = [], courts = [], origin = "" } = loaderData;
+	const { user, posts, courtQueues = {}, courtCodes = {}, courtAdmins = {}, myInQueue = {}, myAdminStatus = {}, coachingListings = [], courts = [], origin = "" } = loaderData;
 	const [activeTab, setActiveTab] = useState<"feed" | "courts" | "reserve" | "coaching">("feed");
-	const [posts, setPosts] = useState<typeof loaderPosts>(loaderPosts);
-	const [user, setUser] = useState<typeof loaderUser>(loaderUser);
-	const isLoggedIn = !!user;
-	useEffect(() => {
-		setPosts(loaderPosts);
-		setUser(loaderUser);
-	}, [loaderPosts, loaderUser]);
 	const [showLoginModal, setShowLoginModal] = useState(false);
-	const [loginEmail, setLoginEmail] = useState("");
-	const [loginPassword, setLoginPassword] = useState("");
-	const [isLoggingIn, setIsLoggingIn] = useState(false);
-	const [newPostContent, setNewPostContent] = useState("");
-	const [isPosting, setIsPosting] = useState(false);
 	const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
 	const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
 	const [selectedDate, setSelectedDate] = useState<string>("");
@@ -249,88 +222,9 @@ export default function Home() {
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [reservationId, setReservationId] = useState<string>("");
 	const courtsForTab = courts.length > 0 ? courts : MOCK_COURTS;
-
-	const savePosts = useCallback((next: Post[]) => {
-		setPosts(next);
-	}, []);
-
-	const handleLogin = async (e: React.FormEvent) => {
-		e.preventDefault();
-		if (!loginEmail.trim()) return;
-		setIsLoggingIn(true);
-		await new Promise((r) => setTimeout(r, 1000));
-		const userData = { email: loginEmail, name: loginEmail.split("@")[0] || "Player" };
-		localStorage.setItem("pickleball_user", JSON.stringify(userData));
-		setUser(userData);
-		setIsLoggedIn(true);
-		setShowLoginModal(false);
-		setLoginEmail("");
-		setLoginPassword("");
-		setIsLoggingIn(false);
-	};
-
-	const handleLogout = () => {
-		localStorage.removeItem("pickleball_user");
-		setUser(null);
-		setIsLoggedIn(false);
-		setSelectedCourt(null);
-		setSelectedDate("");
-		setSelectedTime(null);
-		setIsSuccess(false);
-	};
-
-	const handleAddPost = async () => {
-		if (!user || !newPostContent.trim()) return;
-		setIsPosting(true);
-		await new Promise((r) => setTimeout(r, 400));
-		const post: Post = {
-			id: `post-${Date.now()}`,
-			authorId: user.email,
-			authorName: user.name,
-			content: newPostContent.trim(),
-			createdAt: new Date().toISOString(),
-			likes: 0,
-			likedBy: [],
-			comments: [],
-		};
-		savePosts([post, ...posts]);
-		setNewPostContent("");
-		setIsPosting(false);
-	};
-
-	const handleLike = (postId: string) => {
-		if (!user) {
-			setShowLoginModal(true);
-			return;
-		}
-		const next = posts.map((p) => {
-			if (p.id !== postId) return p;
-			const liked = p.likedBy.includes(user.email);
-			return {
-				...p,
-				likes: liked ? p.likes - 1 : p.likes + 1,
-				likedBy: liked ? p.likedBy.filter((e) => e !== user.email) : [...p.likedBy, user.email],
-			};
-		});
-		savePosts(next);
-	};
-
-	const handleAddComment = (postId: string) => {
-		const content = (commentInputs[postId] || "").trim();
-		if (!user || !content) return;
-		const next = posts.map((p) => {
-			if (p.id !== postId) return p;
-			return {
-				...p,
-				comments: [
-					...p.comments,
-					{ id: `c-${Date.now()}`, authorName: user.name, content, createdAt: new Date().toISOString() },
-				],
-			};
-		});
-		savePosts(next);
-		setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
-	};
+	const isLoggedIn = !!user;
+	const likeFetcher = useFetcher();
+	const commentFetcher = useFetcher();
 
 	const handleReserve = async () => {
 		if (!selectedCourt || !selectedDate || !selectedTime) return;
@@ -350,17 +244,33 @@ export default function Home() {
 		setReservationId("");
 	};
 
+	const handleLike = (postId: string) => {
+		if (!user) {
+			setShowLoginModal(true);
+			return;
+		}
+		likeFetcher.submit({ intent: "like", postId }, { method: "post" });
+	};
+
+	const handleAddComment = (postId: string) => {
+		const content = (commentInputs[postId] ?? "").trim();
+		if (!user || !content) return;
+		commentFetcher.submit({ intent: "addComment", postId, content }, { method: "post" });
+		setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
+	};
+
 	const court = courtsForTab.find((c) => c.id === selectedCourt);
 	const today = new Date().toISOString().slice(0, 10);
 	const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
 	return (
 		<div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-			{/* Login Modal */}
+			{/* Login Modal — demo: any email/password creates or reuses a demo account */}
 			{showLoginModal && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
 					<div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-8 relative">
 						<button
+							type="button"
 							onClick={() => setShowLoginModal(false)}
 							className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
 						>
@@ -370,29 +280,27 @@ export default function Home() {
 						</button>
 						<h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Welcome back</h2>
 						<p className="text-gray-600 dark:text-gray-400 text-sm mb-6">Demo — any email and password work.</p>
-						<form onSubmit={handleLogin} className="space-y-4">
+						<form method="post" className="space-y-4">
+							<input type="hidden" name="intent" value="demoLogin" />
 							<input
 								type="email"
-								value={loginEmail}
-								onChange={(e) => setLoginEmail(e.target.value)}
+								name="email"
 								placeholder="Email"
 								required
 								className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 focus:outline-none"
 							/>
 							<input
 								type="password"
-								value={loginPassword}
-								onChange={(e) => setLoginPassword(e.target.value)}
+								name="password"
 								placeholder="Password"
 								required
 								className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 focus:outline-none"
 							/>
 							<button
 								type="submit"
-								disabled={isLoggingIn}
 								className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold disabled:opacity-50"
 							>
-								{isLoggingIn ? "Logging in…" : "Login"}
+								Login
 							</button>
 						</form>
 					</div>
@@ -465,12 +373,14 @@ export default function Home() {
 							{isLoggedIn ? (
 								<div className="flex items-center gap-2 pl-2 border-l border-gray-200 dark:border-gray-700">
 									<span className="text-sm text-gray-600 dark:text-gray-400 hidden sm:inline">{user?.name}</span>
-									<button
-										onClick={handleLogout}
-										className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-									>
-										Logout
-									</button>
+									<form method="post" action="/auth/logout" className="inline">
+										<button
+											type="submit"
+											className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+										>
+											Logout
+										</button>
+									</form>
 								</div>
 							) : (
 								<>
@@ -499,22 +409,24 @@ export default function Home() {
 					<div className="space-y-6">
 						{isLoggedIn && (
 							<div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
-								<textarea
-									value={newPostContent}
-									onChange={(e) => setNewPostContent(e.target.value)}
-									placeholder="What's on your mind? Ask for partners, share court tips..."
-									rows={3}
-									className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-500 focus:border-emerald-500 focus:outline-none resize-none"
-								/>
-								<div className="mt-3 flex justify-end">
-									<button
-										onClick={handleAddPost}
-										disabled={!newPostContent.trim() || isPosting}
-										className="px-5 py-2 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold text-sm disabled:opacity-50 hover:shadow-md"
-									>
-										{isPosting ? "Posting…" : "Post"}
-									</button>
-								</div>
+								<form method="post" className="space-y-3">
+									<input type="hidden" name="intent" value="addPost" />
+									<textarea
+										name="content"
+										required
+										placeholder="What's on your mind? Ask for partners, share court tips..."
+										rows={3}
+										className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-500 focus:border-emerald-500 focus:outline-none resize-none"
+									/>
+									<div className="flex justify-end">
+										<button
+											type="submit"
+											className="px-5 py-2 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold text-sm hover:shadow-md"
+										>
+											Post
+										</button>
+									</div>
+								</form>
 							</div>
 						)}
 
@@ -537,14 +449,15 @@ export default function Home() {
 										<p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{post.content}</p>
 										<div className="flex items-center gap-4 mt-4">
 											<button
+												type="button"
 												onClick={() => handleLike(post.id)}
 												className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-													user && post.likedBy.includes(user.email)
+													post.likedByMe
 														? "text-emerald-600 dark:text-emerald-400"
 														: "text-gray-500 dark:text-gray-400 hover:text-emerald-600"
 												}`}
 											>
-												<svg className="w-5 h-5" fill={user && post.likedBy.includes(user.email) ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+												<svg className="w-5 h-5" fill={post.likedByMe ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
 													<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
 												</svg>
 												{post.likes}
@@ -569,7 +482,12 @@ export default function Home() {
 											<input
 												value={commentInputs[post.id] ?? ""}
 												onChange={(e) => setCommentInputs((prev) => ({ ...prev, [post.id]: e.target.value }))}
-												onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleAddComment(post.id))}
+												onKeyDown={(e) => {
+													if (e.key === "Enter" && !e.shiftKey) {
+														e.preventDefault();
+														handleAddComment(post.id);
+													}
+												}}
 												placeholder="Write a comment..."
 												className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
 											/>

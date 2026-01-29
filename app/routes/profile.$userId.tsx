@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Link, useLoaderData, useParams, useNavigate } from "react-router";
+import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/profile.$userId";
 import {
 	getSessionToken,
 	getSessionUser,
+	getUser,
 	getProfile,
 	getRegions,
 	getFriendStatus,
@@ -13,7 +14,7 @@ import {
 	upsertProfile,
 } from "~/lib/db.server";
 
-export function meta({}: Route.MetaArgs) {
+export function meta(_args: Route.MetaArgs) {
 	return [{ title: "Profile - Pickleball" }];
 }
 
@@ -25,7 +26,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const token = getSessionToken(cookieHeader);
 	const currentUser = await getSessionUser(db, token);
 	const isMe = currentUser?.id === userId;
-	const profileUser = await db.prepare("SELECT id, email, name, provider FROM users WHERE id = ?").bind(userId).first<{ id: string; email: string | null; name: string; provider: string }>();
+	const profileUser = await getUser(db, userId);
 	if (!profileUser) return { currentUser, profileUser: null, profile: null, regions: [], friendStatus: "none" as const };
 	const [profile, regions] = await Promise.all([getProfile(db, userId), getRegions(db, 100)]);
 	const friendStatus = currentUser && !isMe ? await getFriendStatus(db, currentUser.id, userId) : "none";
@@ -77,7 +78,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 export default function ProfileUserId() {
 	const { currentUser, profileUser, profile, regions, friendStatus, isMe } = useLoaderData<typeof loader>();
 	const [editing, setEditing] = useState(false);
-	const navigate = useNavigate();
 
 	if (!profileUser) {
 		return (
