@@ -1,20 +1,23 @@
-import { Link, useLoaderData, redirect } from "react-router";
-import type { Route } from "./+types/demo";
+import { Link, redirect, useLoaderData } from "react-router";
 import {
+	createSession,
+	getCoachingListings,
+	getCourts,
+	getPosts,
+	getQueuesForCourts,
 	getSessionToken,
 	getSessionUser,
-	createSession,
 	sessionCookie,
-	getPosts,
-	getCourts,
-	getQueuesForCourts,
-	getCoachingListings,
 } from "~/lib/db.server";
+import type { Route } from "./+types/demo";
 
 export function meta(_: Route.MetaArgs) {
 	return [
 		{ title: "Demo showcase - Pickleball" },
-		{ name: "description", content: "Explore every feature of the Pickleball app with seeded demo data." },
+		{
+			name: "description",
+			content: "Explore every feature of the Pickleball app with seeded demo data.",
+		},
 	];
 }
 
@@ -152,7 +155,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 function truncate(str: string, len: number): string {
 	if (str.length <= len) return str;
-	return str.slice(0, len) + "...";
+	return `${str.slice(0, len)}...`;
 }
 
 function statusBadge(status: string) {
@@ -239,8 +242,7 @@ export default function Demo() {
 								key={post.id}
 								className="mb-2 text-sm text-gray-700 dark:text-gray-300 border-l-2 border-emerald-400 pl-3"
 							>
-								<span className="font-medium">{post.authorName}:</span>{" "}
-								{truncate(post.content, 80)}
+								<span className="font-medium">{post.authorName}:</span> {truncate(post.content, 80)}
 								<span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
 									({post.likes} likes, {post.comments.length} comments)
 								</span>
@@ -262,10 +264,7 @@ export default function Demo() {
 							{courts.length} court{courts.length !== 1 ? "s" : ""} in the directory
 						</p>
 						{courts.slice(0, 3).map((court) => (
-							<div
-								key={court.id}
-								className="text-sm text-gray-700 dark:text-gray-300 mb-1"
-							>
+							<div key={court.id} className="text-sm text-gray-700 dark:text-gray-300 mb-1">
 								{court.name}
 								{court.city ? ` - ${court.city}` : ""}
 								{court.state ? `, ${court.state}` : ""}
@@ -284,12 +283,11 @@ export default function Demo() {
 						<div className="text-3xl mb-3">🎾</div>
 						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">Court Queue</h2>
 						<p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-							{totalQueueCount} player{totalQueueCount !== 1 ? "s" : ""} in queues across all
-							courts
+							{totalQueueCount} player{totalQueueCount !== 1 ? "s" : ""} in queues across all courts
 						</p>
 						<p className="text-sm text-gray-700 dark:text-gray-300">
-							Digital paddle stack - no paddles on the floor! Join a queue, see your position,
-							and get notified when it is your turn.
+							Digital paddle stack - no paddles on the floor! Join a queue, see your position, and
+							get notified when it is your turn.
 						</p>
 						<span className="inline-block mt-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 group-hover:underline">
 							Explore &rarr;
@@ -302,9 +300,7 @@ export default function Demo() {
 						className="group bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700 transition-all"
 					>
 						<div className="text-3xl mb-3">🎓</div>
-						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">
-							Coaching & Lessons
-						</h2>
+						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">Coaching & Lessons</h2>
 						<p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
 							{coachingListings.length} listing
 							{coachingListings.length !== 1 ? "s" : ""} available
@@ -339,9 +335,7 @@ export default function Demo() {
 								className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 mb-1"
 							>
 								<span>{t.name}</span>
-								<span
-									className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(t.status)}`}
-								>
+								<span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(t.status)}`}>
 									{t.status.replace("_", " ")}
 								</span>
 							</div>
@@ -362,8 +356,7 @@ export default function Demo() {
 							{friendCount} friend{friendCount !== 1 ? "s" : ""} connected
 						</p>
 						<p className="text-sm text-gray-700 dark:text-gray-300">
-							Send friend requests, accept incoming requests, and see your pickleball network
-							grow.
+							Send friend requests, accept incoming requests, and see your pickleball network grow.
 						</p>
 						<span className="inline-block mt-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 group-hover:underline">
 							Explore &rarr;
@@ -385,8 +378,7 @@ export default function Demo() {
 								key={msg.id}
 								className="text-sm text-gray-700 dark:text-gray-300 mb-1 border-l-2 border-emerald-400 pl-3"
 							>
-								<span className="font-medium">{msg.sender_name}:</span>{" "}
-								{truncate(msg.content, 60)}
+								<span className="font-medium">{msg.sender_name}:</span> {truncate(msg.content, 60)}
 							</div>
 						))}
 						<span className="inline-block mt-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 group-hover:underline">
@@ -404,9 +396,7 @@ export default function Demo() {
 						{profile ? (
 							<div className="text-sm text-gray-700 dark:text-gray-300 space-y-1 mb-3">
 								{profile.bio && (
-									<p className="border-l-2 border-teal-400 pl-3">
-										{truncate(profile.bio, 80)}
-									</p>
+									<p className="border-l-2 border-teal-400 pl-3">{truncate(profile.bio, 80)}</p>
 								)}
 								{profile.paddle && <p>Paddle: {profile.paddle}</p>}
 								{profile.skill_level && <p>Skill: {profile.skill_level}</p>}
@@ -427,12 +417,10 @@ export default function Demo() {
 						className="group bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700 transition-all"
 					>
 						<div className="text-3xl mb-3">🏓</div>
-						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">
-							Paddle Database
-						</h2>
+						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">Paddle Database</h2>
 						<p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-							Browse and compare paddle specs - weight, swing weight, core type, face material,
-							and price. Find your perfect match.
+							Browse and compare paddle specs - weight, swing weight, core type, face material, and
+							price. Find your perfect match.
 						</p>
 						<span className="inline-block mt-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 group-hover:underline">
 							Explore &rarr;
@@ -445,9 +433,7 @@ export default function Demo() {
 						className="group bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700 transition-all"
 					>
 						<div className="text-3xl mb-3">📖</div>
-						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">
-							Guides & Learn
-						</h2>
+						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">Guides & Learn</h2>
 						<p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
 							Rules, scoring, strategy tips, and beginner guides. Everything you need to improve
 							your game.
@@ -463,12 +449,10 @@ export default function Demo() {
 						className="group bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700 transition-all"
 					>
 						<div className="text-3xl mb-3">📅</div>
-						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">
-							Play Sessions
-						</h2>
+						<h2 className="font-semibold text-gray-900 dark:text-white mb-1">Play Sessions</h2>
 						<p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-							Organize and join pickup games. Set skill level, format, and player limits.
-							Waitlist support for full sessions.
+							Organize and join pickup games. Set skill level, format, and player limits. Waitlist
+							support for full sessions.
 						</p>
 						<span className="inline-block mt-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 group-hover:underline">
 							Explore &rarr;
@@ -478,12 +462,10 @@ export default function Demo() {
 
 				{/* CTA */}
 				<div className="mt-12 text-center bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-8">
-					<h2 className="text-xl font-bold text-white mb-2">
-						This is seeded demo data
-					</h2>
+					<h2 className="text-xl font-bold text-white mb-2">This is seeded demo data</h2>
 					<p className="text-emerald-100 mb-6 max-w-lg mx-auto">
-						Everything you see above is sample data so you can explore every feature. Sign up
-						with Google or GitHub for a real account.
+						Everything you see above is sample data so you can explore every feature. Sign up with
+						Google or GitHub for a real account.
 					</p>
 					<div className="flex flex-wrap justify-center gap-3">
 						<Link
@@ -508,15 +490,15 @@ export default function Demo() {
 						Pickleball
 					</span>
 					<div className="flex gap-6">
-						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">
+						<span className="hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer">
 							Privacy
-						</a>
-						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">
+						</span>
+						<span className="hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer">
 							Terms
-						</a>
-						<a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400">
+						</span>
+						<span className="hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer">
 							Contact
-						</a>
+						</span>
 					</div>
 				</div>
 			</footer>
