@@ -15,6 +15,7 @@ export default [
 	route("tournaments/:tournamentId", "routes/tournaments.$tournamentId.tsx"),
 	route("join/:code", "routes/join.$code.tsx"),
 	route("profile/:userId", "routes/profile.$userId.tsx"),
+	route("api/avatar/:userId", "routes/api.avatar.$userId.tsx"),
 	route("friends", "routes/friends.tsx"),
 	route("messages", "routes/messages.tsx"),
 	route("messages/:otherId", "routes/messages.$otherId.tsx"),

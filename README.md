@@ -15,7 +15,7 @@ Connect with players, find courts, and find games—all in one place.
 - **Tournaments** — Create single-elimination tournaments; admin starts bracket and sets match winners.
 - **Lessons** — Private lessons & coaching tab: post listings (title, location, availability, rate, contact).
 - **Friends & messages** — Friend requests and direct messages (see `/friends`, `/messages`).
-- **Profiles** — Paddle, shoes, gear, DUPR link, bio, skill level, region (see `/profile/:userId`).
+- **Profiles** — Paddle, shoes, gear, DUPR link, bio, skill level, region; **avatar photo** stored in Cloudflare R2 (see `/profile/:userId`).
 
 Login: **Try demo** (one-click as Alex, requires seed migration) or demo login (any email/password). Session uses HTTP-only cookie when using server auth.
 
@@ -25,6 +25,7 @@ Login: **Try demo** (one-click as Alex, requires seed migration) or demo login (
 - [React 19](https://react.dev/)
 - [Tailwind CSS 4](https://tailwindcss.com/)
 - [Cloudflare Workers](https://workers.cloudflare.com/) (deploy target)
+- [Cloudflare R2](https://developers.cloudflare.com/r2/) (profile avatars)
 - TypeScript
 
 ## Getting started
@@ -69,7 +70,7 @@ npm run build
 npm run deploy
 ```
 
-Requires a Cloudflare account and Wrangler configured (e.g. `wrangler.json`).
+Requires a Cloudflare account and Wrangler configured (e.g. `wrangler.json`). Profile avatars use an R2 bucket named `pickleball`; create it in the Cloudflare dashboard and add the binding in `wrangler.json` (already configured).
 
 ### Demo data (optional)
 
@@ -110,7 +111,7 @@ app/
   lib/
     db.server.ts  # D1 helpers
 migrations/
-  0000_init.sql .. 0011_paddles_database.sql   # Schema + demo seed (0007)
+  0000_init.sql .. 0012_avatar_url.sql   # Schema + demo seed (0007); 0012 adds profile avatar (R2)
 ```
 
 ---

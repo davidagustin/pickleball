@@ -16,6 +16,7 @@ export type UserProfile = {
 	duprLink: string | null;
 	skillLevel: string | null;
 	regionId: string | null;
+	avatarUrl: string | null;
 	updatedAt: string;
 };
 export type Post = {
@@ -171,14 +172,23 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
        ORDER BY c.post_id, c.created_at ASC`,
 		)
 		.bind(...postIds)
-		.all<{ id: string; post_id: string; content: string; created_at: string; author_name: string }>();
+		.all<{
+			id: string;
+			post_id: string;
+			content: string;
+			created_at: string;
+			author_name: string;
+		}>();
 	const likesByPost = new Map<string, string[]>();
 	for (const l of likeRows.results ?? []) {
 		const arr = likesByPost.get(l.post_id) ?? [];
 		arr.push(l.user_id);
 		likesByPost.set(l.post_id, arr);
 	}
-	const commentsByPost = new Map<string, { id: string; authorName: string; content: string; createdAt: string }[]>();
+	const commentsByPost = new Map<
+		string,
+		{ id: string; authorName: string; content: string; createdAt: string }[]
+	>();
 	for (const c of commentRows.results ?? []) {
 		const arr = commentsByPost.get(c.post_id) ?? [];
 		arr.push({
@@ -284,7 +294,7 @@ export async function getProfile(db: D1DB, userId: string): Promise<UserProfile 
 	try {
 		const row = await db
 			.prepare(
-				"SELECT user_id, bio, paddle, shoes, gear, dupr_link, skill_level, region_id, updated_at FROM user_profiles WHERE user_id = ?",
+				"SELECT user_id, bio, paddle, shoes, gear, dupr_link, skill_level, region_id, avatar_url, updated_at FROM user_profiles WHERE user_id = ?",
 			)
 			.bind(userId)
 			.first<{
@@ -296,6 +306,7 @@ export async function getProfile(db: D1DB, userId: string): Promise<UserProfile 
 				dupr_link: string | null;
 				skill_level?: string | null;
 				region_id?: string | null;
+				avatar_url?: string | null;
 				updated_at: string;
 			}>();
 		if (!row) return null;
@@ -308,13 +319,14 @@ export async function getProfile(db: D1DB, userId: string): Promise<UserProfile 
 			duprLink: row.dupr_link,
 			skillLevel: row.skill_level ?? null,
 			regionId: row.region_id ?? null,
+			avatarUrl: row.avatar_url ?? null,
 			updatedAt: row.updated_at,
 		};
 	} catch (e) {
 		console.error("getProfile (full columns)", e);
 		const row = await db
 			.prepare(
-				"SELECT user_id, bio, paddle, shoes, gear, dupr_link, updated_at FROM user_profiles WHERE user_id = ?",
+				"SELECT user_id, bio, paddle, shoes, gear, dupr_link, avatar_url, updated_at FROM user_profiles WHERE user_id = ?",
 			)
 			.bind(userId)
 			.first<{
@@ -324,6 +336,7 @@ export async function getProfile(db: D1DB, userId: string): Promise<UserProfile 
 				shoes: string | null;
 				gear: string | null;
 				dupr_link: string | null;
+				avatar_url?: string | null;
 				updated_at: string;
 			}>();
 		if (!row) return null;
@@ -336,6 +349,7 @@ export async function getProfile(db: D1DB, userId: string): Promise<UserProfile 
 			duprLink: row.dupr_link,
 			skillLevel: null,
 			regionId: null,
+			avatarUrl: row.avatar_url ?? null,
 			updatedAt: row.updated_at,
 		};
 	}
@@ -352,12 +366,13 @@ export async function upsertProfile(
 		duprLink?: string;
 		skillLevel?: string;
 		regionId?: string;
+		avatarUrl?: string | null;
 	},
 ): Promise<void> {
 	await db
 		.prepare(
-			`INSERT INTO user_profiles (user_id, bio, paddle, shoes, gear, dupr_link, skill_level, region_id, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+			`INSERT INTO user_profiles (user_id, bio, paddle, shoes, gear, dupr_link, skill_level, region_id, avatar_url, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
        ON CONFLICT(user_id) DO UPDATE SET
          bio = COALESCE(excluded.bio, user_profiles.bio),
          paddle = COALESCE(excluded.paddle, user_profiles.paddle),
@@ -366,6 +381,7 @@ export async function upsertProfile(
          dupr_link = COALESCE(excluded.dupr_link, user_profiles.dupr_link),
          skill_level = COALESCE(excluded.skill_level, user_profiles.skill_level),
          region_id = COALESCE(excluded.region_id, user_profiles.region_id),
+         avatar_url = COALESCE(excluded.avatar_url, user_profiles.avatar_url),
          updated_at = datetime('now')`,
 		)
 		.bind(
@@ -377,6 +393,7 @@ export async function upsertProfile(
 			data.duprLink ?? null,
 			data.skillLevel ?? null,
 			data.regionId ?? null,
+			data.avatarUrl ?? null,
 		)
 		.run();
 }
@@ -502,7 +519,12 @@ export async function getConversations(
 	}
 	const out = otherIds
 		.filter((id) => userById.has(id))
-		.map((otherId) => ({ user: userById.get(otherId)!, ...byOther[otherId] }));
+		.map((otherId) => {
+			const user = userById.get(otherId);
+			if (!user) return null;
+			return { user, ...byOther[otherId] };
+		})
+		.filter((x): x is NonNullable<typeof x> => x != null);
 	out.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
 	return out.slice(0, 50);
 }
@@ -679,9 +701,7 @@ export async function getMyQueueAndAdminStatusForCourts(
 	if (courtIds.length === 0) return { inQueue, isAdmin };
 	const placeholders = courtIds.map(() => "?").join(",");
 	const queueRows = await db
-		.prepare(
-			`SELECT court_id FROM court_queue WHERE user_id = ? AND court_id IN (${placeholders})`,
-		)
+		.prepare(`SELECT court_id FROM court_queue WHERE user_id = ? AND court_id IN (${placeholders})`)
 		.bind(userId, ...courtIds)
 		.all<{ court_id: string }>();
 	for (const r of queueRows.results ?? []) {
@@ -1617,7 +1637,7 @@ export async function getPlaySessionsForWeek(
 	for (const row of signupCountRows.results ?? []) {
 		signupCountBySession.set(row.session_id, row.c);
 	}
-	let mySignupSessionIds = new Set<string>();
+	const mySignupSessionIds = new Set<string>();
 	if (currentUserId) {
 		const mySignupRows = await db
 			.prepare(
@@ -1629,8 +1649,8 @@ export async function getPlaySessionsForWeek(
 			mySignupSessionIds.add(row.session_id);
 		}
 	}
-	let waitlistCountBySession = new Map<string, number>();
-	let myWaitlistSessionIds = new Set<string>();
+	const waitlistCountBySession = new Map<string, number>();
+	const myWaitlistSessionIds = new Set<string>();
 	try {
 		const wlRows = await db
 			.prepare(

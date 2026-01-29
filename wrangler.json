@@ -17,5 +17,11 @@
 			"database_name": "pickleball",
 			"database_id": "f71090e7-8412-41d4-b868-6e7f8e1a2dfa"
 		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "PICKLEBALL_BUCKET",
+			"bucket_name": "pickleball"
+		}
 	]
 }
