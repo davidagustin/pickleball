@@ -3,6 +3,8 @@ type D1DB = D1Database;
 
 const SESSION_COOKIE = "pickleball_session";
 const SESSION_DAYS = 30;
+const OAUTH_STATE_COOKIE = "oauth_state";
+const OAUTH_STATE_MAX_AGE = 600; // 10 minutes
 
 export type User = { id: string; email: string | null; name: string; provider: string };
 export type UserProfile = {
@@ -41,6 +43,22 @@ export function clearSessionCookie() {
 	return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
+/** Set in redirect to OAuth provider; validate in callback to prevent CSRF. */
+export function oauthStateCookie(state: string): string {
+	return `${OAUTH_STATE_COOKIE}=${encodeURIComponent(state)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${OAUTH_STATE_MAX_AGE}`;
+}
+
+export function getOAuthStateFromCookie(cookieHeader: string | null): string | null {
+	if (!cookieHeader) return null;
+	const match = cookieHeader.match(new RegExp(`${OAUTH_STATE_COOKIE}=([^;]+)`));
+	return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function clearOAuthStateCookie(): string {
+	return `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+}
+
+/** Returns the current user if the session cookie is valid; null otherwise. */
 export async function getSessionUser(db: D1DB, token: string | null): Promise<User | null> {
 	if (!token) return null;
 	const row = await db
@@ -55,10 +73,18 @@ export async function getSessionUser(db: D1DB, token: string | null): Promise<Us
 	return user;
 }
 
-/** Get current user from request cookie; returns null if not authenticated. */
-export async function requireUser(db: D1DB, request: Request): Promise<User | null> {
+/** Convenience: get current user from request cookies, or null if not logged in. */
+export async function getOptionalUser(db: D1DB, request: Request): Promise<User | null> {
 	const token = getSessionToken(request.headers.get("Cookie") ?? null);
 	return getSessionUser(db, token);
+}
+
+/** Get a user by id; returns null if not found. */
+export async function getUser(db: D1DB, userId: string): Promise<User | null> {
+	return db
+		.prepare("SELECT id, email, name, provider FROM users WHERE id = ?")
+		.bind(userId)
+		.first<User>();
 }
 
 export async function getOrCreateDemoUser(db: D1DB, email: string, name: string): Promise<User> {
@@ -130,60 +156,41 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
 		}>();
 	const results = rows.results ?? [];
 	if (results.length === 0) return [];
-
 	const postIds = results.map((r) => r.id);
 	const placeholders = postIds.map(() => "?").join(",");
-
-	const [likeRows, commentRows] = await Promise.all([
-		db
-			.prepare(`SELECT post_id, user_id FROM likes WHERE post_id IN (${placeholders})`)
-			.bind(...postIds)
-			.all<{ post_id: string; user_id: string }>(),
-		db
-			.prepare(
-				`SELECT c.post_id, c.id, c.content, c.created_at, u.name as author_name
-         FROM comments c
-         JOIN users u ON c.author_id = u.id
-         WHERE c.post_id IN (${placeholders})
-         ORDER BY c.created_at ASC`,
-			)
-			.bind(...postIds)
-			.all<{
-				post_id: string;
-				id: string;
-				content: string;
-				created_at: string;
-				author_name: string;
-			}>(),
-	]);
-
-	const likesByPost: Record<string, string[]> = {};
-	for (const r of likeRows.results ?? []) {
-		if (!likesByPost[r.post_id]) likesByPost[r.post_id] = [];
-		likesByPost[r.post_id].push(r.user_id);
+	const likeRows = await db
+		.prepare(`SELECT post_id, user_id FROM likes WHERE post_id IN (${placeholders})`)
+		.bind(...postIds)
+		.all<{ post_id: string; user_id: string }>();
+	const commentRows = await db
+		.prepare(
+			`SELECT c.id, c.post_id, c.content, c.created_at, u.name as author_name
+       FROM comments c
+       JOIN users u ON c.author_id = u.id
+       WHERE c.post_id IN (${placeholders})
+       ORDER BY c.post_id, c.created_at ASC`,
+		)
+		.bind(...postIds)
+		.all<{ id: string; post_id: string; content: string; created_at: string; author_name: string }>();
+	const likesByPost = new Map<string, string[]>();
+	for (const l of likeRows.results ?? []) {
+		const arr = likesByPost.get(l.post_id) ?? [];
+		arr.push(l.user_id);
+		likesByPost.set(l.post_id, arr);
 	}
-	const commentsByPost: Record<
-		string,
-		{ id: string; content: string; created_at: string; author_name: string }[]
-	> = {};
-	for (const r of commentRows.results ?? []) {
-		if (!commentsByPost[r.post_id]) commentsByPost[r.post_id] = [];
-		commentsByPost[r.post_id].push({
-			id: r.id,
-			content: r.content,
-			created_at: r.created_at,
-			author_name: r.author_name,
-		});
-	}
-
-	const posts: Post[] = results.map((row) => {
-		const likeUserIds = likesByPost[row.id] ?? [];
-		const comments = (commentsByPost[row.id] ?? []).map((c) => ({
+	const commentsByPost = new Map<string, { id: string; authorName: string; content: string; createdAt: string }[]>();
+	for (const c of commentRows.results ?? []) {
+		const arr = commentsByPost.get(c.post_id) ?? [];
+		arr.push({
 			id: c.id,
 			authorName: c.author_name,
 			content: c.content,
 			createdAt: c.created_at,
-		}));
+		});
+		commentsByPost.set(c.post_id, arr);
+	}
+	return results.map((row) => {
+		const likeUserIds = likesByPost.get(row.id) ?? [];
 		return {
 			id: row.id,
 			authorId: row.author_id,
@@ -192,10 +199,9 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
 			createdAt: row.created_at,
 			likes: likeUserIds.length,
 			likedByMe: currentUserId ? likeUserIds.includes(currentUserId) : false,
-			comments,
+			comments: commentsByPost.get(row.id) ?? [],
 		};
 	});
-	return posts;
 }
 
 export async function createPost(db: D1DB, authorId: string, content: string): Promise<Post> {
@@ -304,7 +310,8 @@ export async function getProfile(db: D1DB, userId: string): Promise<UserProfile 
 			regionId: row.region_id ?? null,
 			updatedAt: row.updated_at,
 		};
-	} catch {
+	} catch (e) {
+		console.error("getProfile (full columns)", e);
 		const row = await db
 			.prepare(
 				"SELECT user_id, bio, paddle, shoes, gear, dupr_link, updated_at FROM user_profiles WHERE user_id = ?",
@@ -489,12 +496,13 @@ export async function getConversations(
 		.prepare(`SELECT id, email, name, provider FROM users WHERE id IN (${placeholders})`)
 		.bind(...otherIds)
 		.all<User>();
-	const userMap = new Map((userRows.results ?? []).map((u) => [u.id, u]));
-	const out: { user: User; lastMessage: string; lastAt: string; unread: number }[] = [];
-	for (const otherId of otherIds) {
-		const u = userMap.get(otherId);
-		if (u) out.push({ user: u, ...byOther[otherId] });
+	const userById = new Map<string, User>();
+	for (const u of userRows.results ?? []) {
+		userById.set(u.id, u);
 	}
+	const out = otherIds
+		.filter((id) => userById.has(id))
+		.map((otherId) => ({ user: userById.get(otherId)!, ...byOther[otherId] }));
 	out.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
 	return out.slice(0, 50);
 }
@@ -591,9 +599,33 @@ export async function getQueuesForCourts(
 	db: D1DB,
 	courtIds: string[],
 ): Promise<Record<string, QueueEntry[]>> {
+	if (courtIds.length === 0) return {};
+	const placeholders = courtIds.map(() => "?").join(",");
+	const rows = await db
+		.prepare(
+			`SELECT cq.court_id, cq.user_id, cq.created_at, u.name as user_name
+       FROM court_queue cq
+       JOIN users u ON cq.user_id = u.id
+       WHERE cq.court_id IN (${placeholders})
+       ORDER BY cq.court_id, cq.created_at ASC`,
+		)
+		.bind(...courtIds)
+		.all<{ court_id: string; user_id: string; user_name: string; created_at: string }>();
+	const byCourt = new Map<string, { userId: string; userName: string; createdAt: string }[]>();
+	for (const r of rows.results ?? []) {
+		const arr = byCourt.get(r.court_id) ?? [];
+		arr.push({ userId: r.user_id, userName: r.user_name, createdAt: r.created_at });
+		byCourt.set(r.court_id, arr);
+	}
 	const out: Record<string, QueueEntry[]> = {};
 	for (const courtId of courtIds) {
-		out[courtId] = await getCourtQueue(db, courtId);
+		const entries = byCourt.get(courtId) ?? [];
+		out[courtId] = entries.map((e, i) => ({
+			userId: e.userId,
+			userName: e.userName,
+			position: i + 1,
+			createdAt: e.createdAt,
+		}));
 	}
 	return out;
 }
@@ -632,6 +664,41 @@ export async function isInQueue(db: D1DB, courtId: string, userId: string): Prom
 	return !!row;
 }
 
+/** Batch check queue and admin status for a user across courts. */
+export async function getMyQueueAndAdminStatusForCourts(
+	db: D1DB,
+	userId: string,
+	courtIds: string[],
+): Promise<{ inQueue: Record<string, boolean>; isAdmin: Record<string, boolean> }> {
+	const inQueue: Record<string, boolean> = {};
+	const isAdmin: Record<string, boolean> = {};
+	for (const cid of courtIds) {
+		inQueue[cid] = false;
+		isAdmin[cid] = false;
+	}
+	if (courtIds.length === 0) return { inQueue, isAdmin };
+	const placeholders = courtIds.map(() => "?").join(",");
+	const queueRows = await db
+		.prepare(
+			`SELECT court_id FROM court_queue WHERE user_id = ? AND court_id IN (${placeholders})`,
+		)
+		.bind(userId, ...courtIds)
+		.all<{ court_id: string }>();
+	for (const r of queueRows.results ?? []) {
+		inQueue[r.court_id] = true;
+	}
+	const adminRows = await db
+		.prepare(
+			`SELECT court_id FROM court_admins WHERE user_id = ? AND court_id IN (${placeholders})`,
+		)
+		.bind(userId, ...courtIds)
+		.all<{ court_id: string }>();
+	for (const r of adminRows.results ?? []) {
+		isAdmin[r.court_id] = true;
+	}
+	return { inQueue, isAdmin };
+}
+
 // --- Room codes: shareable hash so others can scan QR or enter code to join queue ---
 export async function getCourtByCode(db: D1DB, code: string): Promise<string | null> {
 	const row = await db
@@ -653,10 +720,15 @@ export async function getCodesForCourts(
 	db: D1DB,
 	courtIds: string[],
 ): Promise<Record<string, string>> {
+	if (courtIds.length === 0) return {};
+	const placeholders = courtIds.map(() => "?").join(",");
+	const rows = await db
+		.prepare(`SELECT court_id, code FROM court_room_codes WHERE court_id IN (${placeholders})`)
+		.bind(...courtIds)
+		.all<{ court_id: string; code: string }>();
 	const out: Record<string, string> = {};
-	for (const courtId of courtIds) {
-		const code = await getCodeForCourt(db, courtId);
-		if (code) out[courtId] = code;
+	for (const r of rows.results ?? []) {
+		out[r.court_id] = r.code;
 	}
 	return out;
 }
@@ -686,9 +758,27 @@ export async function getAdminsForCourts(
 	db: D1DB,
 	courtIds: string[],
 ): Promise<Record<string, CourtAdminEntry[]>> {
+	if (courtIds.length === 0) return {};
+	const placeholders = courtIds.map(() => "?").join(",");
+	const rows = await db
+		.prepare(
+			`SELECT ca.court_id, ca.user_id, ca.created_at, u.name as user_name
+       FROM court_admins ca
+       JOIN users u ON ca.user_id = u.id
+       WHERE ca.court_id IN (${placeholders})
+       ORDER BY ca.court_id, ca.created_at ASC`,
+		)
+		.bind(...courtIds)
+		.all<{ court_id: string; user_id: string; user_name: string; created_at: string }>();
+	const byCourt = new Map<string, CourtAdminEntry[]>();
+	for (const r of rows.results ?? []) {
+		const arr = byCourt.get(r.court_id) ?? [];
+		arr.push({ userId: r.user_id, userName: r.user_name, createdAt: r.created_at });
+		byCourt.set(r.court_id, arr);
+	}
 	const out: Record<string, CourtAdminEntry[]> = {};
 	for (const courtId of courtIds) {
-		out[courtId] = await getCourtAdmins(db, courtId);
+		out[courtId] = byCourt.get(courtId) ?? [];
 	}
 	return out;
 }
@@ -699,39 +789,6 @@ export async function isCourtAdmin(db: D1DB, courtId: string, userId: string): P
 		.bind(courtId, userId)
 		.first();
 	return !!row;
-}
-
-/** Batch-fetch myInQueue and myAdminStatus for a user across court IDs (avoids N+1 in home loader). */
-export async function getMyQueueAndAdminStatus(
-	db: D1DB,
-	courtIds: string[],
-	userId: string,
-): Promise<{ myInQueue: Record<string, boolean>; myAdminStatus: Record<string, boolean> }> {
-	const myInQueue: Record<string, boolean> = {};
-	const myAdminStatus: Record<string, boolean> = {};
-	for (const cid of courtIds) {
-		myInQueue[cid] = false;
-		myAdminStatus[cid] = false;
-	}
-	if (courtIds.length === 0) return { myInQueue, myAdminStatus };
-	const placeholders = courtIds.map(() => "?").join(",");
-	const [queueRows, adminRows] = await Promise.all([
-		db
-			.prepare(
-				`SELECT court_id FROM court_queue WHERE user_id = ? AND court_id IN (${placeholders})`,
-			)
-			.bind(userId, ...courtIds)
-			.all<{ court_id: string }>(),
-		db
-			.prepare(
-				`SELECT court_id FROM court_admins WHERE user_id = ? AND court_id IN (${placeholders})`,
-			)
-			.bind(userId, ...courtIds)
-			.all<{ court_id: string }>(),
-	]);
-	for (const r of queueRows.results ?? []) myInQueue[r.court_id] = true;
-	for (const r of adminRows.results ?? []) myAdminStatus[r.court_id] = true;
-	return { myInQueue, myAdminStatus };
 }
 
 export async function addCourtAdmin(db: D1DB, courtId: string, userId: string): Promise<void> {
@@ -967,7 +1024,7 @@ export async function getBracketMatches(db: D1DB, tournamentId: string): Promise
 		if (r.player2_id) userIds.add(r.player2_id);
 		if (r.winner_id) userIds.add(r.winner_id);
 	}
-	const nameMap = new Map<string, string>();
+	const nameByUserId = new Map<string, string>();
 	if (userIds.size > 0) {
 		const ids = [...userIds];
 		const placeholders = ids.map(() => "?").join(",");
@@ -976,7 +1033,7 @@ export async function getBracketMatches(db: D1DB, tournamentId: string): Promise
 			.bind(...ids)
 			.all<{ id: string; name: string }>();
 		for (const u of userRows.results ?? []) {
-			nameMap.set(u.id, u.name);
+			nameByUserId.set(u.id, u.name);
 		}
 	}
 	return results.map((r) => ({
@@ -985,11 +1042,11 @@ export async function getBracketMatches(db: D1DB, tournamentId: string): Promise
 		round: r.round,
 		matchOrder: r.match_order,
 		player1Id: r.player1_id,
-		player1Name: r.player1_id ? (nameMap.get(r.player1_id) ?? null) : null,
+		player1Name: r.player1_id ? (nameByUserId.get(r.player1_id) ?? null) : null,
 		player2Id: r.player2_id,
-		player2Name: r.player2_id ? (nameMap.get(r.player2_id) ?? null) : null,
+		player2Name: r.player2_id ? (nameByUserId.get(r.player2_id) ?? null) : null,
 		winnerId: r.winner_id,
-		winnerName: r.winner_id ? (nameMap.get(r.winner_id) ?? null) : null,
+		winnerName: r.winner_id ? (nameByUserId.get(r.winner_id) ?? null) : null,
 		nextMatchId: r.next_match_id,
 		nextSlot: r.next_slot,
 	}));
@@ -1209,7 +1266,8 @@ export async function getCourts(
 			createdBy: r.created_by,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (e) {
+		console.error("getCourts", e);
 		return [];
 	}
 }
@@ -1367,7 +1425,8 @@ export async function getPaddles(
 			description: r.description,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (e) {
+		console.error("getPaddles", e);
 		return [];
 	}
 }
@@ -1532,7 +1591,7 @@ export async function getPlaySessionsForWeek(
 			.bind(startDate, endDate)
 			.all<PlaySessionRow>();
 	} catch (e) {
-		console.error("getPlaySessionsForWeek (with court/recurring):", e);
+		console.error("getPlaySessionsForWeek (full columns)", e);
 		rows = await db
 			.prepare(
 				`SELECT s.id, s.creator_id, s.region_id, s.venue, s.session_date, s.session_time, s.skill_level, s.format_type, s.event_name, s.player_min, s.player_max, s.created_at, u.name as creator_name
@@ -1544,56 +1603,85 @@ export async function getPlaySessionsForWeek(
 			.bind(startDate, endDate)
 			.all<PlaySessionRow>();
 	}
-	const out: PlaySession[] = [];
-	for (const r of rows.results ?? []) {
-		const signupCount = await db
-			.prepare("SELECT COUNT(*) as c FROM play_session_signups WHERE session_id = ?")
-			.bind(r.id)
-			.first<{ c: number }>();
-		const count = signupCount?.c ?? 0;
-		let mySignup = false;
-		let waitlistCount = 0;
-		let myWaitlist = false;
+	const results = rows.results ?? [];
+	if (results.length === 0) return [];
+	const sessionIds = results.map((r) => r.id);
+	const placeholders = sessionIds.map(() => "?").join(",");
+	const signupCountRows = await db
+		.prepare(
+			`SELECT session_id, COUNT(*) as c FROM play_session_signups WHERE session_id IN (${placeholders}) GROUP BY session_id`,
+		)
+		.bind(...sessionIds)
+		.all<{ session_id: string; c: number }>();
+	const signupCountBySession = new Map<string, number>();
+	for (const row of signupCountRows.results ?? []) {
+		signupCountBySession.set(row.session_id, row.c);
+	}
+	let mySignupSessionIds = new Set<string>();
+	if (currentUserId) {
+		const mySignupRows = await db
+			.prepare(
+				`SELECT session_id FROM play_session_signups WHERE user_id = ? AND session_id IN (${placeholders})`,
+			)
+			.bind(currentUserId, ...sessionIds)
+			.all<{ session_id: string }>();
+		for (const row of mySignupRows.results ?? []) {
+			mySignupSessionIds.add(row.session_id);
+		}
+	}
+	let waitlistCountBySession = new Map<string, number>();
+	let myWaitlistSessionIds = new Set<string>();
+	try {
+		const wlRows = await db
+			.prepare(
+				`SELECT session_id, COUNT(*) as c FROM play_session_waitlist WHERE session_id IN (${placeholders}) GROUP BY session_id`,
+			)
+			.bind(...sessionIds)
+			.all<{ session_id: string; c: number }>();
+		for (const row of wlRows.results ?? []) {
+			waitlistCountBySession.set(row.session_id, row.c);
+		}
 		if (currentUserId) {
-			const me = await db
-				.prepare("SELECT 1 FROM play_session_signups WHERE session_id = ? AND user_id = ?")
-				.bind(r.id, currentUserId)
-				.first();
-			mySignup = !!me;
-			try {
-				const wl = await db
-					.prepare("SELECT COUNT(*) as c FROM play_session_waitlist WHERE session_id = ?")
-					.bind(r.id)
-					.first<{ c: number }>();
-				waitlistCount = wl?.c ?? 0;
-				const onWl = await db
-					.prepare("SELECT 1 FROM play_session_waitlist WHERE session_id = ? AND user_id = ?")
-					.bind(r.id, currentUserId)
-					.first();
-				myWaitlist = !!onWl;
-			} catch (e) {
-				console.error("getPlaySessionsForWeek waitlist:", e);
+			const onWlRows = await db
+				.prepare(
+					`SELECT session_id FROM play_session_waitlist WHERE user_id = ? AND session_id IN (${placeholders})`,
+				)
+				.bind(currentUserId, ...sessionIds)
+				.all<{ session_id: string }>();
+			for (const row of onWlRows.results ?? []) {
+				myWaitlistSessionIds.add(row.session_id);
 			}
 		}
+	} catch (e) {
+		console.error("getPlaySessionsForWeek waitlist", e);
+	}
+	const regionIds = [...new Set(results.map((r) => r.region_id).filter(Boolean) as string[])];
+	const regionById = new Map<string, { name: string; color: string | null }>();
+	if (regionIds.length > 0) {
+		const regPlaceholders = regionIds.map(() => "?").join(",");
+		const regRows = await db
+			.prepare(`SELECT id, name, color FROM regions WHERE id IN (${regPlaceholders})`)
+			.bind(...regionIds)
+			.all<{ id: string; name: string; color: string | null }>();
+		for (const r of regRows.results ?? []) {
+			regionById.set(r.id, { name: r.name, color: r.color });
+		}
+	}
+	return results.map((r) => {
+		const count = signupCountBySession.get(r.id) ?? 0;
+		const mySignup = mySignupSessionIds.has(r.id);
+		const waitlistCount = waitlistCountBySession.get(r.id) ?? 0;
+		const myWaitlist = myWaitlistSessionIds.has(r.id);
 		const playerMax = r.player_max ?? 999;
 		const isFull = playerMax > 0 && count >= playerMax;
-		let regionName: string | null = null;
-		let regionColor: string | null = null;
-		if (r.region_id) {
-			const reg = await db
-				.prepare("SELECT name, color FROM regions WHERE id = ?")
-				.bind(r.region_id)
-				.first<{ name: string; color: string | null }>();
-			regionName = reg?.name ?? null;
-			regionColor = reg?.color ?? null;
-		}
-		out.push({
+		const reg = r.region_id ? regionById.get(r.region_id) : null;
+		return {
 			id: r.id,
 			creatorId: r.creator_id,
 			creatorName: r.creator_name,
 			regionId: r.region_id,
-			regionName,
-			regionColor,
+			regionName: reg?.name ?? null,
+			regionColor: reg?.color ?? null,
 			venue: r.venue,
 			sessionDate: r.session_date,
 			sessionTime: r.session_time,
@@ -1612,9 +1700,8 @@ export async function getPlaySessionsForWeek(
 			waitlistCount,
 			myWaitlist,
 			isFull,
-		});
-	}
-	return out;
+		};
+	});
 }
 
 export async function getPlaySession(
@@ -1706,8 +1793,7 @@ export async function createPlaySession(
 				data.recurrenceDay ?? null,
 			)
 			.run();
-	} catch (e) {
-		console.error("createPlaySession (with court/recurring):", e);
+	} catch {
 		await db
 			.prepare(
 				`INSERT INTO play_sessions (id, creator_id, region_id, venue, session_date, session_time, skill_level, format_type, event_name, player_min, player_max) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1791,7 +1877,8 @@ export async function getSessionWaitlist(db: D1DB, sessionId: string): Promise<S
 			userName: r.user_name,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (e) {
+		console.error("getSessionWaitlist", e);
 		return [];
 	}
 }
@@ -1807,8 +1894,7 @@ export async function joinSessionWaitlist(
 			.bind(sessionId, userId)
 			.run();
 		return {};
-	} catch (e) {
-		console.error("joinSessionWaitlist:", e);
+	} catch {
 		return { error: "Waitlist not available" };
 	}
 }
@@ -1823,7 +1909,7 @@ export async function leaveSessionWaitlist(
 			.prepare("DELETE FROM play_session_waitlist WHERE session_id = ? AND user_id = ?")
 			.bind(sessionId, userId)
 			.run();
-	} catch (e) {
-		console.error("leaveSessionWaitlist:", e);
+	} catch {
+		// table may not exist
 	}
 }

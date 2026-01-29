@@ -1,130 +1,240 @@
 # Comprehensive Code Review Report
 
-**Project:** mtr (Pickleball app)  
-**Scope:** Full codebase — five distinct review areas, each assigned to a single agent to avoid overlap.  
-**Severity legend:** CRITICAL | HIGH | MEDIUM | LOW
+**Project:** Pickleball (DHL)  
+**Scope:** Full codebase (app/, workers/, migrations/, e2e/)  
+**Review model:** Five independent agents, each with a unique scope (no overlap).
 
 ---
 
 ## Agent 1 — Security
 
-**Scope:** Authentication, authorization, secrets, SQL/user input, session, and OWASP-relevant issues only.
+**Scope:** Secrets, injection, XSS, CSRF, authentication/authorization only.
 
-### Findings
+### CRITICAL (1)
 
-| Severity | Location | Issue | Recommendation |
-|----------|----------|--------|-----------------|
-| **LOW** | `app/routes/home.tsx` (demo login) | Demo login accepts any email with no password; intended for demo but could be abused (e.g. account creation spam). | Document as intentional; consider rate limiting or CAPTCHA for demo endpoint. |
-| **LOW** | `app/root.tsx:59` | Error boundary exposes stack trace when `import.meta.env.DEV` is true. | Acceptable for dev; ensure production builds do not set DEV. |
-| **—** | `app/lib/db.server.ts` | All DB access uses `.prepare().bind()` — no string concatenation of user input. | Good: SQL injection risk mitigated. |
-| **—** | Session cookie | `sessionCookie()` sets `HttpOnly; SameSite=Lax; Max-Age=…`. | Good: reduces XSS/CSRF exposure. |
-| **—** | OAuth | Google/GitHub callbacks use env for client_id/client_secret; no secrets in repo. | Good: secrets in Cloudflare env. |
+1. **app/routes/auth.oauth.google.tsx, auth.oauth.github.tsx (OAuth flow)**  
+   **Issue:** OAuth `state` is generated and sent to the provider but **never validated** in the callback.  
+   **Risk:** CSRF on OAuth: attacker can trick a user into completing OAuth with the victim’s account and have the callback hit the victim’s browser, linking the attacker’s provider account to the victim.  
+   **Fix:** Store `state` in a signed cookie or server-side session before redirecting; in the callback, read `state` from the URL, compare to stored value, then clear it. Reject the request if missing or mismatched.
 
-**Security summary:** No CRITICAL or HIGH issues. Parameterized queries and session cookie settings are solid. Only low-risk item is unauthenticated demo login (document/rate-limit if needed).
+### HIGH (0)
+
+(none)
+
+### MEDIUM (2)
+
+2. **app/routes/home.tsx (demo login)**  
+   **Issue:** Demo login accepts any email and ignores password; no rate limiting.  
+   **Risk:** Account enumeration / abuse of “demo” accounts.  
+   **Fix:** If demo is only for dev, gate behind env or IP. Otherwise add rate limiting and optional CAPTCHA for demo login.
+
+3. **app/root.tsx (ErrorBoundary)**  
+   **Issue:** In DEV, full error message and stack are rendered in the UI.  
+   **Risk:** Information disclosure if DEV is ever exposed.  
+   **Fix:** Already limited to `import.meta.env.DEV`; ensure production builds never set this. Consider never rendering raw stack in UI even in dev (e.g. log only).
+
+### LOW (1)
+
+4. **app/lib/db.server.ts (session cookie)**  
+   **Observation:** Session cookie uses `HttpOnly`, `SameSite=Lax`, and `Path=/`. No `Secure` in code; Cloudflare/HTTPS typically handles this in production.  
+   **Suggestion:** Document or set `Secure` in production so cookie is never sent over HTTP.
+
+### Security summary
+
+- **SQL/NoSQL:** All DB access uses `.prepare().bind()` — no string concatenation of user input; no SQL injection found.
+- **Secrets:** OAuth client_id/client_secret and DB come from `context.cloudflare.env`; no hardcoded secrets.
+- **XSS:** User content (posts, comments, messages, notes, profiles) is rendered as React text; no `dangerouslySetInnerHTML` found — default escaping is in place.
+- **AuthZ:** Actions that change state (court queue, make admin, tournament admin, coaching delete, profile update, friend accept/reject) check session and, where needed, ownership or admin role. No obvious IDOR from the reviewed routes.
+
+**Agent 1 recommendation:** Request changes — fix OAuth state validation before treating OAuth as production-ready.
 
 ---
 
 ## Agent 2 — Code Quality
 
-**Scope:** Function size, cyclomatic complexity, nesting depth, naming, and duplication only (no performance or security).
+**Scope:** Complexity, nesting, duplication (DRY), naming, and type consistency only. No security, performance, or tests.
 
-### Findings
+### CRITICAL (1)
 
-| Severity | Location | Issue | Recommendation |
-|----------|----------|--------|-----------------|
-| **HIGH** | `app/routes/home.tsx` | Single component ~1,090 lines; loader, action, and large JSX in one file. | Split: e.g. `home.loader.ts`, `home.action.ts`, and components (FeedTab, CourtsTab, ReserveTab, CoachingTab, shared Nav/Footer). |
-| **HIGH** | `app/routes/home.tsx:253` | `useCallback` is used but not imported from `"react"`. | Add `useCallback` to React import. |
-| **HIGH** | `app/routes/home.tsx` | Client expects `Post` with `likedBy: string[]` and uses `user.email`; server returns `Post` with `likedByMe: boolean`. Accessing `post.likedBy` on server data throws. | Align types: either (a) use server shape (`likedByMe`) in UI and like logic, or (b) map server → client shape in loader and keep client-only type. |
-| **MEDIUM** | `app/routes/home.tsx` | Type `Post` used in component but not imported from `~/lib/db.server` (or a shared types module). | Import `Post` from `~/lib/db.server` (or shared types) and fix shape to match server. |
-| **MEDIUM** | `app/lib/db.server.ts` | `getProfile` (lines 239–298): try/catch with second nearly identical query in catch; ~60 lines. | Prefer single query; if backward compatibility needed, use optional columns or one query with fallback mapping. |
-| **MEDIUM** | `app/lib/db.server.ts` | `getBracketMatches` (lines 577–627): loop with 3 sequential `db.prepare().first()` per row. | See Agent 3 (Performance) for batching; keep function but reduce per-row DB calls. |
-| **LOW** | `app/routes/home.tsx` | `handleAddPost` builds a local `Post` with `authorId: user.email`; server type uses `authorId: string` (user id). | Use `user.id` (or the same identifier the server uses) for `authorId` when constructing client-side post. |
-| **LOW** | Various routes | Repeated pattern: `getSessionToken(request.headers.get("Cookie"))` then `getSessionUser(db, token)`. | Extract e.g. `getRequestUser(db, request)` used by all protected actions. |
+1. **app/routes/home.tsx (Feed type vs server data)**  
+   **Issue:** Loader returns posts from `getPosts()` with type `Post` from `db.server` (`likedByMe: boolean`, `authorId: string`). The client uses a different shape: `post.likedBy` (array) and `user.email` for likes.  
+   **Risk:** `post.likedBy` is undefined on server-loaded posts → `post.likedBy.includes(user.email)` can throw or behave incorrectly; like state and like button are wrong for real (non-demo) data.  
+   **Fix:** Use the server `Post` type (e.g. import from `~/lib/db.server`). Use `post.likedByMe` for “liked by current user” and remove `likedBy`. For optimistic updates after like/comment, either refetch (e.g. via fetcher) or update local state to match server shape (e.g. flip `likedByMe` and adjust `likes` count). Align `user` with server `User` (use `user.id` where needed, not `user.email` for identity in like checks).
 
-**Code quality summary:** One file is oversized and mixes concerns; one runtime bug (likedBy vs likedByMe) and one missing import (useCallback). Address HIGH items first.
+### HIGH (2)
+
+2. **app/routes/home.tsx (dual login and user shape)**  
+   **Issue:** Two login paths: (1) Demo modal sets `user` from `localStorage` as `{ email, name }` and uses client-only post/like/comment. (2) Real OAuth/demo form submit sets cookie and loader returns `user` as `{ id, email, name, provider }`. The component mixes both: `user?.id` vs `user?.email` and sometimes treats “logged in” without distinguishing shapes.  
+   **Risk:** Confusing behavior when switching between demo modal and real login; possible runtime errors if code assumes `user.id` when only `user.email` exists.  
+   **Fix:** Use a single notion of “current user” from the loader (cookie-based). If demo modal is only for “try without account,” keep it clearly separate (e.g. a read-only or local-only mode) and don’t mix its `user` shape with server `user`.
+
+3. **app/lib/db.server.ts (getProfile fallback)**  
+   **Issue:** `getProfile` has a try/catch that runs a second, almost identical query without `skill_level` and `region_id` on failure. Duplicated column list and mapping.  
+   **Fix:** Single query that selects optional columns only if they exist (e.g. via schema introspection or a single query with COALESCE), or one helper that builds the profile from one row type.
+
+### MEDIUM (3)
+
+4. **app/lib/db.server.ts (getPlaySessionsForWeek)**  
+   **Issue:** Similar try/catch with two large queries that differ only by optional columns (`court_id`, `is_recurring`, `recurrence_day`). Duplication and harder maintenance.  
+   **Fix:** One query that includes optional columns when the schema supports them, or a small migration so the table is always up to date and one query suffices.
+
+5. **app/routes/home.tsx (size and branching)**  
+   **Issue:** Single file ~630 lines; many tabs (feed, courts, reserve, coaching) and intents in one component.  
+   **Fix:** Extract tab panels into components (e.g. `FeedTab`, `CourtsTab`, `ReserveTab`, `CoachingTab`). Optionally extract modal (login, add session) and shared nav into presentational components.
+
+6. **app/routes/sessions.tsx, courts.$courtId.tsx, home.tsx (action intent handling)**  
+   **Issue:** Long `if (intent === "…")` chains.  
+   **Fix:** Consider a small intent map or switch for readability; keep auth and validation at the top, then delegate to handlers.
+
+### LOW (2)
+
+7. **app/routes/profile.$userId.tsx (loader)**  
+   **Issue:** Loader uses raw `db.prepare("SELECT … FROM users WHERE id = ?")` for `profileUser` instead of a shared helper (e.g. `getUser(db, userId)`).  
+   **Fix:** Use a shared `getUser` from `db.server` for consistency and reuse.
+
+8. **Naming**  
+   **Observation:** Most names are clear. Minor: `myInQueue` / `myAdminStatus` could be `isInQueueByCourt` / `isAdminByCourt` for consistency with booleans.
+
+**Agent 2 recommendation:** Request changes — fix Post/user type and dual-login handling in home.tsx first; then reduce duplication in db.server and split large route components.
 
 ---
 
 ## Agent 3 — Performance
 
-**Scope:** Database query patterns, N+1, caching, and algorithm efficiency only (no refactors for style or structure).
+**Scope:** N+1 queries, batching, caching, algorithm choice, and unnecessary re-renders only. No security or code-style.
 
-### Findings
+### HIGH (4)
 
-| Severity | Location | Issue | Recommendation |
-|----------|----------|--------|-----------------|
-| **HIGH** | `app/lib/db.server.ts:getPosts` | For each of up to 100 posts: 1 query for likes, 1 for comments → up to 201 extra queries. | Single query for all likes for loaded post IDs (e.g. `WHERE post_id IN (?,?,…)`), single for comments; build map by post_id and attach in JS. |
-| **HIGH** | `app/lib/db.server.ts:getConversations` | For each distinct conversation partner, one `SELECT … FROM users WHERE id = ?`. | After building `byOther`, fetch all user IDs and one query: `SELECT … FROM users WHERE id IN (?,?,…)`; map results to conversations. |
-| **HIGH** | `app/lib/db.server.ts:getBracketMatches` | For each match row, up to 3 separate queries for player1, player2, winner names. | Collect all user IDs from the match set; one `SELECT id, name FROM users WHERE id IN (…)`; map names in memory. |
-| **HIGH** | `app/lib/db.server.ts:getPlaySessionsForWeek` | Per session: signup count, my signup, waitlist count, my waitlist, region name/color → many sequential queries. | Batch: one query for all signup counts (GROUP BY session_id), one for current user signups, one for waitlist counts, one for regions; join in code. |
-| **MEDIUM** | `app/routes/home.tsx` (loader) | For each court ID: `isInQueue(db, cid, user.id)` and `isCourtAdmin(db, cid, user.id)` in a loop. | Single query: e.g. `SELECT court_id, 'queue' as kind FROM court_queue WHERE user_id = ? UNION SELECT court_id, 'admin' FROM court_admins WHERE user_id = ?`; build `myInQueue` and `myAdminStatus` from result. |
-| **MEDIUM** | `app/lib/db.server.ts:getQueuesForCourts` / `getCodesForCourts` / `getAdminsForCourts` | Three separate loops over `courtIds`, each calling one function per id. | Prefer one batch per concern: e.g. `getCourtQueuesBatch(db, courtIds)` with `WHERE court_id IN (?,?,…)` and return Record<courtId, QueueEntry[]>. |
-| **LOW** | `app/lib/db.server.ts:getCourtByCode` | `UPPER(TRIM(?)) = UPPER(code)` — index on `court_room_codes(code)` may not be used if DB compares with expression. | If table is large, consider persisted computed column or ensure index supports the comparison. |
+1. **app/lib/db.server.ts — getPosts (lines ~109–165)**  
+   **Issue:** For each of up to 100 posts, two extra queries run: one for likes, one for comments.  
+   **Fix:** One query for all likes for the post set (e.g. `WHERE post_id IN (...)`), one for all comments (with `ORDER BY post_id, created_at`). Group in memory by `post_id` and attach to each post.
 
-**Performance summary:** Multiple clear N+1 patterns (getPosts, getConversations, getBracketMatches, getPlaySessionsForWeek). Batching by ID lists will reduce query count sharply; no caching reviewed in this pass.
+2. **app/lib/db.server.ts — getBracketMatches (lines ~577–631)**  
+   **Issue:** For each match row, up to three separate queries fetch `name` for `player1_id`, `player2_id`, and `winner_id`.  
+   **Fix:** Collect all distinct user ids from the match set; one `SELECT id, name FROM users WHERE id IN (...)`; build a `Map<id, name>` and use it when building `BracketMatch` objects.
+
+3. **app/lib/db.server.ts — getPlaySessionsForWeek (lines ~956–1038)**  
+   **Issue:** For each session: signup count, “my signup,” waitlist count, “my waitlist,” and region name each can be a separate query.  
+   **Fix:** Batch: one query for all signup counts (GROUP BY session_id), one for current user’s signups for the week, one for waitlist counts, one for “my waitlist,” one for regions by id. Join or index in JS and attach to each session.
+
+4. **app/lib/db.server.ts — getConversations (lines ~410–418)**  
+   **Issue:** After grouping messages by other user id, for each distinct `otherId` a separate `SELECT … FROM users WHERE id = ?` is run.  
+   **Fix:** Single query: `SELECT id, email, name, provider FROM users WHERE id IN (${otherIds.join(',')})` (with parameterized list or multiple binds as supported by D1), then map by id.
+
+### MEDIUM (2)
+
+5. **app/routes/home.tsx — loader**  
+   **Issue:** For each of `courtIds`, `isInQueue(db, cid, user.id)` and `isCourtAdmin(db, cid, user.id)` are called in a loop — 2×N queries.  
+   **Fix:** Add `getMyQueueAndAdminStatusForCourts(db, userId, courtIds)` that returns `{ inQueue: Set<string>, admin: Set<string> }` (or two sets) with one or two queries (e.g. `SELECT court_id FROM court_queue WHERE user_id = ? AND court_id IN (...)` and same for court_admins).
+
+6. **app/lib/db.server.ts — getQueuesForCourts, getCodesForCourts, getAdminsForCourts**  
+   **Issue:** Each function loops over `courtIds` and calls `getCourtQueue` / `getCodeForCourt` / `getCourtAdmins` per id.  
+   **Fix:** Implement batched versions: single query for all queues (e.g. `WHERE court_id IN (...)`), same for codes and admins; group results by court_id in JS.
+
+### LOW (1)
+
+7. **Re-renders**  
+   **Observation:** home.tsx uses local state for posts and user; no obvious heavy re-renders. Fetcher usage for mutations could trigger loader revalidation; that’s expected. No memoization needed for the current scale; if feed or session lists grow, consider virtualizing long lists.
+
+**Agent 3 recommendation:** Request changes — eliminate N+1 in getPosts, getBracketMatches, getPlaySessionsForWeek, and getConversations; then batch court-related and home loader queries.
 
 ---
 
 ## Agent 4 — Best Practices
 
-**Scope:** Error handling, logging, documentation, and tests only (no security or performance).
+**Scope:** Error handling, logging, documentation, and tests only. No security, performance, or structure.
 
-### Findings
+### HIGH (2)
 
-| Severity | Location | Issue | Recommendation |
-|----------|----------|--------|-----------------|
-| **MEDIUM** | `app/lib/db.server.ts:getProfile` | Bare `catch { … }` with no logging; second query hides failure reason. | At least log `error` in dev or to a monitored logger; avoid silent fallback without trace. |
-| **MEDIUM** | `app/lib/db.server.ts:getCourts` / `getPaddles` | `try { … } catch { return []; }` — caller cannot distinguish "no rows" from "DB error". | Let errors propagate or return `{ data: [], error?: string }`; or log and rethrow. |
-| **MEDIUM** | `app/lib/db.server.ts:getPlaySessionsForWeek` | Inner try/catch for waitlist with empty catch ("waitlist table may not exist"). | Log once (e.g. debug) or document; avoid silent swallow in production. |
-| **MEDIUM** | `app/entry.server.tsx` | Only logs streaming errors when `shellRendered` is true; initial shell errors may be unlogged. | Comment notes handleDocumentRequest will log; ensure root/loader errors are logged in one place. |
-| **LOW** | `app/lib/db.server.ts` | No JSDoc or module-level description for exported functions. | Add brief JSDoc for public API (e.g. getSessionUser, getPosts, createCourt). |
-| **LOW** | `e2e/home.spec.ts` | Single test: home page loads and title contains "pickleball". | Add tests for: auth flow (demo or OAuth), court list, session list, and one protected action (e.g. join queue) if feasible. |
-| **LOW** | Routes | No explicit rate limiting in app code (e.g. on demo login, post creation). | Consider rate limiting at edge or in action for sensitive endpoints. |
+1. **app/lib/db.server.ts (silent failure in several functions)**  
+   **Issue:** `getCourts`, `getPaddles`, `getPlaySessionsForWeek` (inner try), `getSessionWaitlist`, `getProfile` (catch) use empty `catch { }` or `catch { return []; }` / `return {}` with no logging.  
+   **Risk:** Schema or runtime errors are invisible; debugging is hard.  
+   **Fix:** At minimum log the error in dev or to a monitored logger: `catch (e) { console.error('getCourts', e); return []; }`. Prefer returning a Result type or throwing after logging so callers can handle failures.
 
-**Best practices summary:** Several silent or opaque catch blocks; improving error handling and logging will help debugging. Test coverage is minimal; expand e2e and consider unit tests for db helpers.
+2. **e2e/home.spec.ts (test coverage)**  
+   **Issue:** Only one test: “home page loads” and title contains “pickleball.” No tests for auth, sessions, courts, tournaments, messages, profile, or form actions.  
+   **Fix:** Add e2e tests for: demo or OAuth login flow, create post / like / comment, join/leave court queue, create/join session, create tournament and set winner (if feasible). Add unit or integration tests for critical db.server functions (e.g. getSessionUser, createSession, getPosts, getPlaySessionsForWeek) with a test DB or mocks.
+
+### MEDIUM (3)
+
+3. **app/routes/sessions.tsx — action (addNote without user)**  
+   **Issue:** Logic: `if (!user && intent !== "addNote") return redirect("/home?login=1");` then later `if (intent === "addNote") { if (!user) return redirect("/home?login=1"); ... }`. Works but is redundant and a bit confusing.  
+   **Fix:** For `addNote`, require user at the start: e.g. `if (!user) return redirect("/home?login=1");` once at top, or document that addNote is the only intent allowed when not logged in (if that’s intended).
+
+4. **app/lib/db.server.ts (no JSDoc / public API docs)**  
+   **Issue:** Exported functions (getSessionUser, getPosts, createPost, getCourt, etc.) have no JSDoc.  
+   **Fix:** Add brief JSDoc for public functions: purpose, params, return value, and possible errors where relevant.
+
+5. **app/entry.server.tsx (onError)**  
+   **Issue:** Only logs when `shellRendered` is true; initial shell errors are not logged here (by design).  
+   **Fix:** Ensure the top-level request handler or framework logs initial render errors; add a one-line comment in entry.server that “initial shell errors are handled by …” so future readers don’t assume nothing is logged.
+
+### LOW (2)
+
+6. **Demo login (password)**  
+   **Observation:** Demo login ignores password. If this is intentional (“any email + any password”), add a one-line comment so it’s not mistaken for a bug.
+
+7. **env.d.ts / worker-configuration.d.ts**  
+   **Observation:** Env types are declared; ensure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_*`, and `DB` are documented (e.g. in README or a CONTRIBUTING) so new contributors know what to set.
+
+**Agent 4 recommendation:** Request changes — add error logging in db.server catch blocks and expand tests (e2e + critical DB paths); then clarify session action and add minimal JSDoc.
 
 ---
 
 ## Agent 5 — Maintainability
 
-**Scope:** DRY, coupling, testability, and code structure only (no performance or security).
+**Scope:** File/module structure, coupling, testability, and refactorability only. No security, performance, or style.
 
-### Findings
+### HIGH (1)
 
-| Severity | Location | Issue | Recommendation |
-|----------|----------|--------|-----------------|
-| **HIGH** | `app/routes/home.tsx` vs `app/routes/courts.$courtId.tsx` | Court queue UI (join/leave, room code, admins) duplicated between home "Courts" tab and court detail page. | Extract shared component(s), e.g. `CourtQueueCard`, `RoomCodeBlock`, and reuse in both routes. |
-| **MEDIUM** | All route actions | Same 3–4 lines to get current user: get cookie → get token → get user; repeated in every protected action. | Introduce `requireUser(db, request)` (or similar) returning user or redirect/error; use in every action that needs auth. |
-| **MEDIUM** | `app/lib/db.server.ts` | Single large module with many unrelated domains (sessions, posts, courts, tournaments, paddles, play sessions, etc.). | Split by domain: e.g. `db/sessions.server.ts`, `db/courts.server.ts`, `db/tournaments.server.ts`, re-export from `db.server.ts` if desired. |
-| **MEDIUM** | Nav/footer | Same nav and footer markup repeated across home, courts, court detail, messages, etc. | Move to layout (e.g. root or a nested layout) or shared `<AppShell>` with nav/footer and `<Outlet />`. |
-| **LOW** | `app/lib/db.server.ts` | Direct D1 usage throughout; no abstraction. | Optional: introduce a small `db` wrapper (e.g. run, runOne, runMany) to simplify tests with a mock. |
-| **LOW** | Routes | Some routes use `context.cloudflare.env.DB` and optional env (e.g. GOOGLE_CLIENT_ID); others assume DB exists. | Centralize "get db from context" and "get env" in one helper to avoid repeated null checks. |
+1. **app/lib/db.server.ts (~1200 lines, single file)**  
+   **Issue:** One module holds sessions, users, posts, profiles, friends, messages, courts, queues, room codes, admins, tournaments, brackets, coaching, paddles, regions, play sessions, signups, notes, waitlist. High cohesion per domain but low modularity.  
+   **Risk:** Hard to navigate; any change touches a large file; merge conflicts and risk of regressions.  
+   **Fix:** Split by domain into e.g. `db/sessions.ts`, `db/users.ts`, `db/posts.ts`, `db/profiles.ts`, `db/friends.ts`, `db/messages.ts`, `db/courts.ts`, `db/tournaments.ts`, `db/coaching.ts`, `db/paddles.ts`, `db/regions.ts`, `db/play-sessions.ts`. Re-export from `db.server.ts` or from `db/index.ts` so existing imports (`~/lib/db.server`) still work. Share types (User, Court, etc.) from a shared types file or from the main entry.
 
-**Maintainability summary:** Biggest wins are extracting shared UI (court queue, nav/footer) and a single "require user" helper. Splitting `db.server.ts` by domain will improve navigation and testability.
+### MEDIUM (3)
+
+2. **Auth helper duplication**  
+   **Issue:** Every route that needs the current user does `getSessionToken(request.headers.get("Cookie"))` then `getSessionUser(db, token)`. Repeated in many loaders/actions.  
+   **Fix:** Add `getOptionalUser(db, request)` and optionally `requireUser(db, request)` (redirect or throw if null). Use in loaders/actions so auth logic lives in one place.
+
+3. **Route action patterns**  
+   **Issue:** Multiple routes use the same pattern: parse intent, get user, branch on intent, call db, redirect or return error. No shared abstraction.  
+   **Fix:** Optional: a small `handleFormAction(request, db, handlers)` that parses formData, gets user, and dispatches by intent; or keep as-is but document the pattern in a short “Route actions” section in the README.
+
+4. **app/routes/home.tsx (responsibilities)**  
+   **Issue:** One route handles feed, courts list, reserve flow, coaching list, login modal, and multiple form intents. Heavy for a single component and a single action.  
+   **Fix:** Already suggested in Agent 2 (split tabs); consider splitting the action by “area” (e.g. post intents vs court intents vs coaching intents) into helper functions or a small action router for readability.
+
+### LOW (2)
+
+5. **Testability**  
+   **Observation:** db.server functions are async and take `db` as first argument — easy to pass a mock or test D1. No tests yet; adding them (as in Agent 4) would improve maintainability and regression safety.
+
+6. **Migrations**  
+   **Observation:** Migrations are numbered and sequential; schema evolution is clear. Optional: add a short “Schema” or “Migrations” section in README describing how to run and add migrations.
+
+**Agent 5 recommendation:** Comment — address the large db.server split and optional auth/action helpers when you next refactor; not blocking but will improve long-term maintainability.
 
 ---
 
-## Summary by Severity
+## Summary Table
 
-| Severity | Count | Areas |
-|----------|-------|--------|
-| **CRITICAL** | 0 | — |
-| **HIGH** | 6 | Code quality (3), Performance (4), Maintainability (1) |
-| **MEDIUM** | 12 | Code quality (2), Performance (2), Best practices (4), Maintainability (4) |
-| **LOW** | 10 | Security (1), Code quality (2), Performance (1), Best practices (3), Maintainability (3) |
-
-**Recommendation:** REQUEST CHANGES — address HIGH items (especially `home.tsx` runtime/import and N+1 queries) before merge; then tackle MEDIUM for quality and maintainability.
+| Severity   | Agent 1 (Security) | Agent 2 (Quality) | Agent 3 (Performance) | Agent 4 (Practices) | Agent 5 (Maintainability) |
+|-----------|---------------------|-------------------|------------------------|----------------------|----------------------------|
+| CRITICAL  | 1 (OAuth state)     | 1 (Post type)     | 0                      | 0                    | 0                          |
+| HIGH      | 0                   | 2                 | 4 (N+1)                | 2                    | 1 (db.server size)         |
+| MEDIUM    | 2                   | 3                 | 2                      | 3                    | 3                          |
+| LOW       | 1                   | 2                 | 1                      | 2                    | 2                          |
 
 ---
 
-## Agent Task Summary (No Overlap)
+## Overall Recommendation
 
-| Agent | Responsibility | Did not cover |
-|-------|----------------|----------------|
-| **1 – Security** | Auth, secrets, SQL/user input, session, OWASP | Quality, performance, tests, structure |
-| **2 – Code quality** | Function size, complexity, nesting, naming, types | Security, N+1, logging, DRY |
-| **3 – Performance** | DB N+1, batching, caching, algorithm cost | Security, naming, error handling, duplication |
-| **4 – Best practices** | Error handling, logging, docs, tests | Injection, complexity, query batching, DRY |
-| **5 – Maintainability** | DRY, coupling, testability, file structure | Security, performance, types, logging |
+**REQUEST CHANGES**
 
-Each agent scoped to a single category so no finding is duplicated across agents.
+- **Must fix:** OAuth state validation (Agent 1); Post/user type and feed behavior in home.tsx (Agent 2).
+- **Should fix:** N+1 in getPosts, getBracketMatches, getPlaySessionsForWeek, getConversations (Agent 3); error logging in db.server and basic test coverage (Agent 4).
+- **Consider:** Splitting db.server by domain (Agent 5); shared auth helper; batched court helpers (Agents 3 and 5).
+
+Each agent’s section is self-contained and does not duplicate another agent’s scope.

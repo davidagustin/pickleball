@@ -1,5 +1,6 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/auth.oauth.github";
+import { oauthStateCookie } from "~/lib/db.server";
 
 export function loader({ context }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
@@ -15,5 +16,7 @@ export function loader({ context }: Route.LoaderArgs) {
 	url.searchParams.set("redirect_uri", redirectUri);
 	url.searchParams.set("scope", "user:email read:user");
 	url.searchParams.set("state", state);
-	return redirect(url.toString());
+	return redirect(url.toString(), {
+		headers: { "Set-Cookie": oauthStateCookie(state) },
+	});
 }
