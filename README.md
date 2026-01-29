@@ -73,7 +73,7 @@ npm run deploy
 
 Requires a Cloudflare account and Wrangler configured (e.g. `wrangler.json`). Profile avatars use an R2 bucket named `pickleball`; create it in the Cloudflare dashboard and add the binding in `wrangler.json` (already configured).
 
-### Demo data (optional)
+### Demo data and heavy seed (optional)
 
 To use **Try demo** and see every feature with sample data, run D1 migrations including the seed:
 
@@ -81,6 +81,8 @@ To use **Try demo** and see every feature with sample data, run D1 migrations in
 wrangler d1 migrations apply DB --remote
 # or for local: wrangler d1 migrations apply DB --local
 ```
+
+Migrations `0007_seed_demo.sql` and `0013_seed_heavy.sql` through `0022_seed_chunk6.sql` add demo + heavy seed (many users, regions, courts, posts, likes, comments, friends, messages, tournaments) for a “widely used” feel. Regenerate with `node scripts/generate-seed.js` if needed.
 
 Then open `/demo` or click **Try demo** on the landing page. You’ll be logged in as Alex and see the feed, court queues, tournaments (draft + in-progress bracket), coaching listings, friends, and messages.
 
@@ -115,6 +117,9 @@ app/
     db.server.ts  # D1 helpers
 migrations/
   0000_init.sql .. 0012_avatar_url.sql   # Schema + demo seed (0007); 0012 adds profile avatar (R2)
+  0013_seed_heavy.sql .. 0022_seed_chunk6.sql  # Heavy seed (users, regions, courts, posts, likes, comments, friends, messages, tournaments)
+scripts/
+  generate-seed.js   # Generates heavy seed SQL (run and pipe into migrations or split for 0013/0014)
 ```
 
 ---
