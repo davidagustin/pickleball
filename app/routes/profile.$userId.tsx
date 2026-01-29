@@ -5,6 +5,7 @@ import {
 	getSessionToken,
 	getSessionUser,
 	getProfile,
+	getRegions,
 	getFriendStatus,
 	sendFriendRequest,
 	acceptFriendRequest,
@@ -19,16 +20,16 @@ export function meta({}: Route.MetaArgs) {
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const db = context.cloudflare.env.DB;
 	const userId = params.userId;
-	if (!db || !userId) return { currentUser: null, profileUser: null, profile: null, friendStatus: "none" as const };
+	if (!db || !userId) return { currentUser: null, profileUser: null, profile: null, regions: [], friendStatus: "none" as const };
 	const cookieHeader = request.headers.get("Cookie");
 	const token = getSessionToken(cookieHeader);
 	const currentUser = await getSessionUser(db, token);
 	const isMe = currentUser?.id === userId;
 	const profileUser = await db.prepare("SELECT id, email, name, provider FROM users WHERE id = ?").bind(userId).first<{ id: string; email: string | null; name: string; provider: string }>();
-	if (!profileUser) return { currentUser, profileUser: null, profile: null, friendStatus: "none" as const };
-	const profile = await getProfile(db, userId);
+	if (!profileUser) return { currentUser, profileUser: null, profile: null, regions: [], friendStatus: "none" as const };
+	const [profile, regions] = await Promise.all([getProfile(db, userId), getRegions(db, 100)]);
 	const friendStatus = currentUser && !isMe ? await getFriendStatus(db, currentUser.id, userId) : "none";
-	return { currentUser, profileUser, profile, friendStatus, isMe };
+	return { currentUser, profileUser, profile, regions, friendStatus, isMe };
 }
 
 export async function action({ context, request, params }: Route.ActionArgs) {
@@ -49,6 +50,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			shoes: (formData.get("shoes") as string) || undefined,
 			gear: (formData.get("gear") as string) || undefined,
 			duprLink: (formData.get("duprLink") as string) || undefined,
+			skillLevel: (formData.get("skillLevel") as string) || undefined,
+			regionId: (formData.get("regionId") as string) || undefined,
 		});
 		return { ok: true };
 	}
@@ -72,7 +75,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 }
 
 export default function ProfileUserId() {
-	const { currentUser, profileUser, profile, friendStatus, isMe } = useLoaderData<typeof loader>();
+	const { currentUser, profileUser, profile, regions, friendStatus, isMe } = useLoaderData<typeof loader>();
 	const [editing, setEditing] = useState(false);
 	const navigate = useNavigate();
 
@@ -153,6 +156,10 @@ export default function ProfileUserId() {
 						<div className="space-y-3 text-gray-700 dark:text-gray-300">
 							{profile?.bio && <p className="whitespace-pre-wrap">{profile.bio}</p>}
 							<div className="grid gap-2 text-sm">
+								{profile?.skillLevel && <p><span className="font-semibold text-gray-500 dark:text-gray-400">Skill level:</span> {profile.skillLevel}</p>}
+								{profile?.regionId && regions.length > 0 && (
+									<p><span className="font-semibold text-gray-500 dark:text-gray-400">Region:</span> {regions.find((r) => r.id === profile.regionId)?.name ?? profile.regionId}</p>
+								)}
 								{profile?.paddle && <p><span className="font-semibold text-gray-500 dark:text-gray-400">Paddle:</span> {profile.paddle}</p>}
 								{profile?.shoes && <p><span className="font-semibold text-gray-500 dark:text-gray-400">Shoes:</span> {profile.shoes}</p>}
 								{profile?.gear && <p><span className="font-semibold text-gray-500 dark:text-gray-400">Gear:</span> {profile.gear}</p>}
@@ -193,6 +200,19 @@ export default function ProfileUserId() {
 							<div>
 								<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">DUPR link</label>
 								<input type="url" name="duprLink" defaultValue={profile?.duprLink ?? ""} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" placeholder="https://dupr.com/..." />
+							</div>
+							<div>
+								<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Skill level</label>
+								<input type="text" name="skillLevel" defaultValue={profile?.skillLevel ?? ""} className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" placeholder="e.g. 2.5-3.5, All levels" />
+							</div>
+							<div>
+								<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Region</label>
+								<select name="regionId" className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" defaultValue={profile?.regionId ?? ""}>
+									<option value="">—</option>
+									{regions.map((r) => (
+										<option key={r.id} value={r.id}>{r.country} · {r.name}</option>
+									))}
+								</select>
 							</div>
 							<div className="flex gap-2">
 								<button type="submit" className="px-4 py-2 rounded-full bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500">Save</button>

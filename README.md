@@ -8,10 +8,13 @@ Connect with players, find courts, and reserve spots — all in one place.
 - **Community feed** — Post, like, and comment. Ask for partners, share court tips.
 - **Find courts** — Browse courts; join a digital court queue (paddle stack) and use room codes / QR to join.
 - **Reserve** — Pick a court, date, and time (demo flow; no real booking).
+- **Play sessions** — Weekly calendar with bubbles (color by region), list view, add session (venue, date, time, skill level, min/max players, optional recurring weekly), “Add my name” to join, waitlist when full, session notes. Not court reservation — arrange play so you have enough players before heading out.
+- **Court finder** — Find courts by city, **Add a court** (name, address, city, state, court count, type, reservable), court detail page with queue and room code, “Suggest changes” link.
+- **Guides & learn** — How to play, skill rating, gear guides; plus links to courts and sessions.
 - **Tournaments** — Create single-elimination tournaments; admin starts bracket and sets match winners.
 - **Lessons** — Private lessons & coaching tab: post listings (title, location, availability, rate, contact).
 - **Friends & messages** — Friend requests and direct messages (see `/friends`, `/messages`).
-- **Profiles** — Paddle, shoes, gear, DUPR link, bio (see `/profile/:userId`).
+- **Profiles** — Paddle, shoes, gear, DUPR link, bio, skill level, region (see `/profile/:userId`).
 
 Login: **Try demo** (one-click as Alex, requires seed migration) or demo login (any email/password). Session uses HTTP-only cookie when using server auth.
 
@@ -41,7 +44,12 @@ App runs at **http://localhost:5173**.
 
 - `/` — Landing page (Try demo, Go to app)  
 - `/demo` — One-click demo login (logs in as Alex; run seed migration first)  
-- `/home` — App: feed, courts, reserve, lessons, tournaments link  
+- `/home` — App: feed, courts, reserve, lessons, sessions link, tournaments link  
+- `/sessions` — Play sessions: weekly calendar (bubbles), list view, add session (recurring, court), join session, waitlist, notes  
+- `/courts` — Find courts (filter by city), add a court  
+- `/courts/new` — Add a court form  
+- `/courts/:courtId` — Court detail: queue, room code, suggest changes  
+- `/guides` — Guides & learn (how to play, skill rating, gear)  
 - `/tournaments` — List and create tournaments; open one for bracket and admin controls  
 - `/friends`, `/messages` — Friends and DMs  
 - `/profile/:userId` — View/edit profile

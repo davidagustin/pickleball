@@ -12,6 +12,8 @@ export type UserProfile = {
 	shoes: string | null;
 	gear: string | null;
 	duprLink: string | null;
+	skillLevel: string | null;
+	regionId: string | null;
 	updatedAt: string;
 };
 export type Post = {
@@ -176,37 +178,60 @@ export async function getUsers(db: D1DB, limit = 50): Promise<User[]> {
 
 // --- Profile ---
 export async function getProfile(db: D1DB, userId: string): Promise<UserProfile | null> {
-	const row = await db
-		.prepare("SELECT user_id, bio, paddle, shoes, gear, dupr_link, updated_at FROM user_profiles WHERE user_id = ?")
-		.bind(userId)
-		.first<{ user_id: string; bio: string | null; paddle: string | null; shoes: string | null; gear: string | null; dupr_link: string | null; updated_at: string }>();
-	if (!row) return null;
-	return {
-		userId: row.user_id,
-		bio: row.bio,
-		paddle: row.paddle,
-		shoes: row.shoes,
-		gear: row.gear,
-		duprLink: row.dupr_link,
-		updatedAt: row.updated_at,
-	};
+	try {
+		const row = await db
+			.prepare("SELECT user_id, bio, paddle, shoes, gear, dupr_link, skill_level, region_id, updated_at FROM user_profiles WHERE user_id = ?")
+			.bind(userId)
+			.first<{ user_id: string; bio: string | null; paddle: string | null; shoes: string | null; gear: string | null; dupr_link: string | null; skill_level?: string | null; region_id?: string | null; updated_at: string }>();
+		if (!row) return null;
+		return {
+			userId: row.user_id,
+			bio: row.bio,
+			paddle: row.paddle,
+			shoes: row.shoes,
+			gear: row.gear,
+			duprLink: row.dupr_link,
+			skillLevel: row.skill_level ?? null,
+			regionId: row.region_id ?? null,
+			updatedAt: row.updated_at,
+		};
+	} catch {
+		const row = await db
+			.prepare("SELECT user_id, bio, paddle, shoes, gear, dupr_link, updated_at FROM user_profiles WHERE user_id = ?")
+			.bind(userId)
+			.first<{ user_id: string; bio: string | null; paddle: string | null; shoes: string | null; gear: string | null; dupr_link: string | null; updated_at: string }>();
+		if (!row) return null;
+		return {
+			userId: row.user_id,
+			bio: row.bio,
+			paddle: row.paddle,
+			shoes: row.shoes,
+			gear: row.gear,
+			duprLink: row.dupr_link,
+			skillLevel: null,
+			regionId: null,
+			updatedAt: row.updated_at,
+		};
+	}
 }
 
 export async function upsertProfile(
 	db: D1DB,
 	userId: string,
-	data: { bio?: string; paddle?: string; shoes?: string; gear?: string; duprLink?: string }
+	data: { bio?: string; paddle?: string; shoes?: string; gear?: string; duprLink?: string; skillLevel?: string; regionId?: string }
 ): Promise<void> {
 	await db
 		.prepare(
-			`INSERT INTO user_profiles (user_id, bio, paddle, shoes, gear, dupr_link, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+			`INSERT INTO user_profiles (user_id, bio, paddle, shoes, gear, dupr_link, skill_level, region_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
        ON CONFLICT(user_id) DO UPDATE SET
          bio = COALESCE(excluded.bio, user_profiles.bio),
          paddle = COALESCE(excluded.paddle, user_profiles.paddle),
          shoes = COALESCE(excluded.shoes, user_profiles.shoes),
          gear = COALESCE(excluded.gear, user_profiles.gear),
          dupr_link = COALESCE(excluded.dupr_link, user_profiles.dupr_link),
+         skill_level = COALESCE(excluded.skill_level, user_profiles.skill_level),
+         region_id = COALESCE(excluded.region_id, user_profiles.region_id),
          updated_at = datetime('now')`
 		)
 		.bind(
@@ -215,7 +240,9 @@ export async function upsertProfile(
 			data.paddle ?? null,
 			data.shoes ?? null,
 			data.gear ?? null,
-			data.duprLink ?? null
+			data.duprLink ?? null,
+			data.skillLevel ?? null,
+			data.regionId ?? null
 		)
 		.run();
 }
@@ -784,4 +811,423 @@ export async function deleteCoachingListing(db: D1DB, listingId: string, userId:
 	if (row.user_id !== userId) return { error: "You can only delete your own listing" };
 	await db.prepare("DELETE FROM coaching_listings WHERE id = ?").bind(listingId).run();
 	return {};
+}
+
+// --- Courts directory (Pickleheads-style court finder, add a court) ---
+export type Court = {
+	id: string;
+	name: string;
+	address: string | null;
+	city: string | null;
+	state: string | null;
+	country: string;
+	courtCount: number;
+	amenities: string | null;
+	courtType: string | null;
+	reservable: boolean;
+	createdBy: string | null;
+	createdAt: string;
+};
+
+export async function getCourts(db: D1DB, opts?: { city?: string; limit?: number }): Promise<Court[]> {
+	try {
+		const limit = opts?.limit ?? 200;
+		let query = "SELECT id, name, address, city, state, country, court_count, amenities, court_type, reservable, created_by, created_at FROM courts ORDER BY name LIMIT ?";
+		const params: (string | number)[] = [limit];
+		if (opts?.city?.trim()) {
+			query = "SELECT id, name, address, city, state, country, court_count, amenities, court_type, reservable, created_by, created_at FROM courts WHERE LOWER(TRIM(city)) = LOWER(TRIM(?)) ORDER BY name LIMIT ?";
+			params.unshift(opts.city.trim());
+		}
+		const rows = await db.prepare(query).bind(...params).all<{
+			id: string; name: string; address: string | null; city: string | null; state: string | null; country: string;
+			court_count: number; amenities: string | null; court_type: string | null; reservable: number; created_by: string | null; created_at: string;
+		}>();
+		return (rows.results ?? []).map((r) => ({
+			id: r.id,
+			name: r.name,
+			address: r.address,
+			city: r.city,
+			state: r.state,
+			country: r.country,
+			courtCount: r.court_count,
+			amenities: r.amenities,
+			courtType: r.court_type,
+			reservable: !!r.reservable,
+			createdBy: r.created_by,
+			createdAt: r.created_at,
+		}));
+	} catch {
+		return [];
+	}
+}
+
+export async function getCourt(db: D1DB, id: string): Promise<Court | null> {
+	const row = await db
+		.prepare("SELECT id, name, address, city, state, country, court_count, amenities, court_type, reservable, created_by, created_at FROM courts WHERE id = ?")
+		.bind(id)
+		.first<{ id: string; name: string; address: string | null; city: string | null; state: string | null; country: string; court_count: number; amenities: string | null; court_type: string | null; reservable: number; created_by: string | null; created_at: string }>();
+	if (!row) return null;
+	return {
+		id: row.id,
+		name: row.name,
+		address: row.address,
+		city: row.city,
+		state: row.state,
+		country: row.country,
+		courtCount: row.court_count,
+		amenities: row.amenities,
+		courtType: row.court_type,
+		reservable: !!row.reservable,
+		createdBy: row.created_by,
+		createdAt: row.created_at,
+	};
+}
+
+export async function createCourt(
+	db: D1DB,
+	userId: string,
+	data: { name: string; address?: string; city?: string; state?: string; country?: string; courtCount?: number; amenities?: string; courtType?: string; reservable?: boolean }
+): Promise<Court> {
+	const id = `court-${crypto.randomUUID()}`;
+	await db
+		.prepare(
+			"INSERT INTO courts (id, name, address, city, state, country, court_count, amenities, court_type, reservable, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+		)
+		.bind(
+			id,
+			data.name,
+			data.address ?? null,
+			data.city ?? null,
+			data.state ?? null,
+			data.country ?? "USA",
+			data.courtCount ?? 1,
+			data.amenities ?? null,
+			data.courtType ?? null,
+			data.reservable ? 1 : 0,
+			userId
+		)
+		.run();
+	const court = await getCourt(db, id);
+	if (!court) throw new Error("Failed to load created court");
+	return court;
+}
+
+// --- Regions (PlayTime Scheduler-style: country + region) ---
+export type Region = { id: string; country: string; name: string; color: string | null; createdAt: string };
+
+export async function getRegions(db: D1DB, limit = 100): Promise<Region[]> {
+	const rows = await db
+		.prepare("SELECT id, country, name, color, created_at as created_at FROM regions ORDER BY country, name LIMIT ?")
+		.bind(limit)
+		.all<{ id: string; country: string; name: string; color: string | null; created_at: string }>();
+	return (rows.results ?? []).map((r) => ({
+		id: r.id,
+		country: r.country,
+		name: r.name,
+		color: r.color,
+		createdAt: r.created_at,
+	}));
+}
+
+export async function createRegion(db: D1DB, country: string, name: string, color?: string): Promise<Region> {
+	const id = `region-${crypto.randomUUID()}`;
+	await db
+		.prepare("INSERT INTO regions (id, country, name, color) VALUES (?, ?, ?, ?)")
+		.bind(id, country, name, color ?? null)
+		.run();
+	return { id, country, name, color: color ?? null, createdAt: new Date().toISOString() };
+}
+
+// --- Play sessions (arrange play with others; not court reservation) ---
+export type PlaySession = {
+	id: string;
+	creatorId: string;
+	creatorName: string;
+	regionId: string | null;
+	regionName: string | null;
+	regionColor: string | null;
+	venue: string;
+	sessionDate: string;
+	sessionTime: string;
+	skillLevel: string | null;
+	formatType: string | null;
+	eventName: string | null;
+	playerMin: number;
+	playerMax: number | null;
+	signupCount: number;
+	mySignup: boolean;
+	gameOn: boolean;
+	createdAt: string;
+	courtId?: string | null;
+	isRecurring?: boolean;
+	recurrenceDay?: string | null;
+	waitlistCount?: number;
+	myWaitlist?: boolean;
+	isFull?: boolean;
+};
+
+export type SessionNote = { id: string; sessionId: string; userId: string; userName: string; content: string; createdAt: string };
+
+export type SessionSignup = { userId: string; userName: string; createdAt: string };
+
+type PlaySessionRow = {
+	id: string;
+	creator_id: string;
+	region_id: string | null;
+	venue: string;
+	session_date: string;
+	session_time: string;
+	skill_level: string | null;
+	format_type: string | null;
+	event_name: string | null;
+	player_min: number;
+	player_max: number | null;
+	created_at: string;
+	creator_name: string;
+	court_id?: string | null;
+	is_recurring?: number;
+	recurrence_day?: string | null;
+};
+
+export async function getPlaySessionsForWeek(db: D1DB, startDate: string, endDate: string, currentUserId: string | null): Promise<PlaySession[]> {
+	let rows: { results?: PlaySessionRow[] };
+	try {
+		rows = await db
+			.prepare(
+				`SELECT s.id, s.creator_id, s.region_id, s.venue, s.session_date, s.session_time, s.skill_level, s.format_type, s.event_name, s.player_min, s.player_max, s.created_at, u.name as creator_name,
+         s.court_id, s.is_recurring, s.recurrence_day
+       FROM play_sessions s
+       JOIN users u ON s.creator_id = u.id
+       WHERE s.session_date >= ? AND s.session_date <= ?
+       ORDER BY s.session_date, s.session_time`
+			)
+			.bind(startDate, endDate)
+			.all<PlaySessionRow>();
+	} catch {
+		rows = await db
+			.prepare(
+				`SELECT s.id, s.creator_id, s.region_id, s.venue, s.session_date, s.session_time, s.skill_level, s.format_type, s.event_name, s.player_min, s.player_max, s.created_at, u.name as creator_name
+       FROM play_sessions s
+       JOIN users u ON s.creator_id = u.id
+       WHERE s.session_date >= ? AND s.session_date <= ?
+       ORDER BY s.session_date, s.session_time`
+			)
+			.bind(startDate, endDate)
+			.all<PlaySessionRow>();
+	}
+	const out: PlaySession[] = [];
+	for (const r of rows.results ?? []) {
+		const signupCount = await db
+			.prepare("SELECT COUNT(*) as c FROM play_session_signups WHERE session_id = ?")
+			.bind(r.id)
+			.first<{ c: number }>();
+		const count = signupCount?.c ?? 0;
+		let mySignup = false;
+		let waitlistCount = 0;
+		let myWaitlist = false;
+		if (currentUserId) {
+			const me = await db.prepare("SELECT 1 FROM play_session_signups WHERE session_id = ? AND user_id = ?").bind(r.id, currentUserId).first();
+			mySignup = !!me;
+			try {
+				const wl = await db.prepare("SELECT COUNT(*) as c FROM play_session_waitlist WHERE session_id = ?").bind(r.id).first<{ c: number }>();
+				waitlistCount = wl?.c ?? 0;
+				const onWl = await db.prepare("SELECT 1 FROM play_session_waitlist WHERE session_id = ? AND user_id = ?").bind(r.id, currentUserId).first();
+				myWaitlist = !!onWl;
+			} catch {
+				// waitlist table may not exist yet
+			}
+		}
+		const playerMax = r.player_max ?? 999;
+		const isFull = playerMax > 0 && count >= playerMax;
+		let regionName: string | null = null;
+		let regionColor: string | null = null;
+		if (r.region_id) {
+			const reg = await db.prepare("SELECT name, color FROM regions WHERE id = ?").bind(r.region_id).first<{ name: string; color: string | null }>();
+			regionName = reg?.name ?? null;
+			regionColor = reg?.color ?? null;
+		}
+		out.push({
+			id: r.id,
+			creatorId: r.creator_id,
+			creatorName: r.creator_name,
+			regionId: r.region_id,
+			regionName,
+			regionColor,
+			venue: r.venue,
+			sessionDate: r.session_date,
+			sessionTime: r.session_time,
+			skillLevel: r.skill_level,
+			formatType: r.format_type,
+			eventName: r.event_name,
+			playerMin: r.player_min,
+			playerMax: r.player_max,
+			signupCount: count,
+			mySignup,
+			gameOn: count >= r.player_min,
+			createdAt: r.created_at,
+			courtId: r.court_id ?? null,
+			isRecurring: !!(r.is_recurring ?? 0),
+			recurrenceDay: r.recurrence_day ?? null,
+			waitlistCount,
+			myWaitlist,
+			isFull,
+		});
+	}
+	return out;
+}
+
+export async function getPlaySession(db: D1DB, sessionId: string, currentUserId: string | null): Promise<PlaySession | null> {
+	const [start, end] = ["1970-01-01", "2099-12-31"];
+	const sessions = await getPlaySessionsForWeek(db, start, end, currentUserId);
+	return sessions.find((s) => s.id === sessionId) ?? null;
+}
+
+export async function getSessionSignups(db: D1DB, sessionId: string): Promise<SessionSignup[]> {
+	const rows = await db
+		.prepare(
+			`SELECT ss.user_id, ss.created_at, u.name as user_name FROM play_session_signups ss JOIN users u ON ss.user_id = u.id WHERE ss.session_id = ? ORDER BY ss.created_at ASC`
+		)
+		.bind(sessionId)
+		.all<{ user_id: string; user_name: string; created_at: string }>();
+	return (rows.results ?? []).map((r) => ({ userId: r.user_id, userName: r.user_name, createdAt: r.created_at }));
+}
+
+export async function getSessionNotes(db: D1DB, sessionId: string): Promise<SessionNote[]> {
+	const rows = await db
+		.prepare(
+			`SELECT n.id, n.session_id, n.user_id, n.content, n.created_at, u.name as user_name FROM play_session_notes n JOIN users u ON n.user_id = u.id WHERE n.session_id = ? ORDER BY n.created_at ASC`
+		)
+		.bind(sessionId)
+		.all<{ id: string; session_id: string; user_id: string; content: string; created_at: string; user_name: string }>();
+	return (rows.results ?? []).map((r) => ({
+		id: r.id,
+		sessionId: r.session_id,
+		userId: r.user_id,
+		userName: r.user_name,
+		content: r.content,
+		createdAt: r.created_at,
+	}));
+}
+
+export async function createPlaySession(
+	db: D1DB,
+	creatorId: string,
+	data: {
+		venue: string;
+		sessionDate: string;
+		sessionTime: string;
+		regionId?: string;
+		courtId?: string;
+		skillLevel?: string;
+		formatType?: string;
+		eventName?: string;
+		playerMin?: number;
+		playerMax?: number;
+		isRecurring?: boolean;
+		recurrenceDay?: string;
+	}
+): Promise<PlaySession> {
+	const id = `session-${crypto.randomUUID()}`;
+	try {
+		await db
+			.prepare(
+				`INSERT INTO play_sessions (id, creator_id, region_id, court_id, venue, session_date, session_time, skill_level, format_type, event_name, player_min, player_max, is_recurring, recurrence_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.bind(
+				id,
+				creatorId,
+				data.regionId ?? null,
+				data.courtId ?? null,
+				data.venue,
+				data.sessionDate,
+				data.sessionTime,
+				data.skillLevel ?? null,
+				data.formatType ?? null,
+				data.eventName ?? null,
+				data.playerMin ?? 4,
+				data.playerMax ?? null,
+				data.isRecurring ? 1 : 0,
+				data.recurrenceDay ?? null
+			)
+			.run();
+	} catch {
+		await db
+			.prepare(
+				`INSERT INTO play_sessions (id, creator_id, region_id, venue, session_date, session_time, skill_level, format_type, event_name, player_min, player_max) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.bind(
+				id,
+				creatorId,
+				data.regionId ?? null,
+				data.venue,
+				data.sessionDate,
+				data.sessionTime,
+				data.skillLevel ?? null,
+				data.formatType ?? null,
+				data.eventName ?? null,
+				data.playerMin ?? 4,
+				data.playerMax ?? null
+			)
+			.run();
+	}
+	const session = await getPlaySession(db, id, creatorId);
+	if (!session) throw new Error("Failed to load created session");
+	return session;
+}
+
+export async function joinPlaySession(db: D1DB, sessionId: string, userId: string): Promise<{ error?: string }> {
+	await db
+		.prepare("INSERT OR IGNORE INTO play_session_signups (session_id, user_id) VALUES (?, ?)")
+		.bind(sessionId, userId)
+		.run();
+	return {};
+}
+
+export async function leavePlaySession(db: D1DB, sessionId: string, userId: string): Promise<void> {
+	await db.prepare("DELETE FROM play_session_signups WHERE session_id = ? AND user_id = ?").bind(sessionId, userId).run();
+}
+
+export async function addSessionNote(db: D1DB, sessionId: string, userId: string, content: string): Promise<SessionNote> {
+	const id = `note-${crypto.randomUUID()}`;
+	const user = await db.prepare("SELECT name FROM users WHERE id = ?").bind(userId).first<{ name: string }>();
+	await db.prepare("INSERT INTO play_session_notes (id, session_id, user_id, content) VALUES (?, ?, ?, ?)").bind(id, sessionId, userId, content).run();
+	return {
+		id,
+		sessionId,
+		userId,
+		userName: user?.name ?? "Unknown",
+		content,
+		createdAt: new Date().toISOString(),
+	};
+}
+
+export async function getSessionWaitlist(db: D1DB, sessionId: string): Promise<SessionSignup[]> {
+	try {
+		const rows = await db
+			.prepare(
+				`SELECT w.user_id, w.created_at, u.name as user_name FROM play_session_waitlist w JOIN users u ON w.user_id = u.id WHERE w.session_id = ? ORDER BY w.created_at ASC`
+			)
+			.bind(sessionId)
+			.all<{ user_id: string; user_name: string; created_at: string }>();
+		return (rows.results ?? []).map((r) => ({ userId: r.user_id, userName: r.user_name, createdAt: r.created_at }));
+	} catch {
+		return [];
+	}
+}
+
+export async function joinSessionWaitlist(db: D1DB, sessionId: string, userId: string): Promise<{ error?: string }> {
+	try {
+		await db.prepare("INSERT OR IGNORE INTO play_session_waitlist (session_id, user_id) VALUES (?, ?)").bind(sessionId, userId).run();
+		return {};
+	} catch {
+		return { error: "Waitlist not available" };
+	}
+}
+
+export async function leaveSessionWaitlist(db: D1DB, sessionId: string, userId: string): Promise<void> {
+	try {
+		await db.prepare("DELETE FROM play_session_waitlist WHERE session_id = ? AND user_id = ?").bind(sessionId, userId).run();
+	} catch {
+		// table may not exist
+	}
 }

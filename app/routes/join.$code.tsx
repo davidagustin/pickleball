@@ -1,13 +1,7 @@
 import { Link, useLoaderData, useParams } from "react-router";
 import { redirect } from "react-router";
 import type { Route } from "./+types/join.$code";
-import { getSessionToken, getSessionUser, getCourtByCode, joinCourtQueue } from "~/lib/db.server";
-
-const COURT_NAMES: Record<string, string> = {
-	"1": "Downtown Community Center",
-	"2": "Riverside Park",
-	"3": "Sunset Rec Complex",
-};
+import { getSessionToken, getSessionUser, getCourtByCode, getCourt, joinCourtQueue } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
 	return [{ title: "Join room - Pickleball" }];
@@ -18,7 +12,8 @@ export async function loader({ context, params }: Route.LoaderArgs) {
 	const code = params.code?.trim().toUpperCase();
 	if (!db || !code) return { courtId: null, courtName: null, code: null, joined: false };
 	const courtId = await getCourtByCode(db, code);
-	const courtName = courtId ? COURT_NAMES[courtId] ?? `Court ${courtId}` : null;
+	const court = courtId ? await getCourt(db, courtId) : null;
+	const courtName = court?.name ?? (courtId ? `Court ${courtId}` : null);
 	return { courtId, courtName, code, joined: false };
 }
 

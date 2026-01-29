@@ -24,6 +24,7 @@ import {
 	getCoachingListings,
 	createCoachingListing,
 	deleteCoachingListing,
+	getCourts,
 } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
@@ -33,7 +34,7 @@ export function meta({}: Route.MetaArgs) {
 	];
 }
 
-const COURT_IDS = ["1", "2", "3"];
+const COURT_IDS = ["1", "2", "3"]; // fallback when courts table empty; otherwise derived from courts
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const db = context.cloudflare.env.DB;
@@ -48,6 +49,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			myInQueue: {} as Record<string, boolean>,
 			myAdminStatus: {} as Record<string, boolean>,
 			coachingListings: [] as { id: string; userId: string; userName: string; title: string; description: string | null; location: string | null; availability: string | null; rate: string | null; contactInfo: string | null; createdAt: string }[],
+			courts: [] as { id: string; name: string; address: string | null; city: string | null; state: string | null; country: string; courtCount: number; amenities: string | null; courtType: string | null; reservable: boolean; createdAt: string }[],
 			origin: "",
 			oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID },
 		};
@@ -57,13 +59,15 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const user = await getSessionUser(db, token);
 	const posts = await getPosts(db, user?.id ?? null);
 	const users = await getUsers(db, 50);
-	const courtQueues = await getQueuesForCourts(db, COURT_IDS);
-	const courtCodes = await getCodesForCourts(db, COURT_IDS);
-	const courtAdmins = await getAdminsForCourts(db, COURT_IDS);
+	const courtsFromDb = await getCourts(db, { limit: 50 });
+	const courtIds = courtsFromDb.length > 0 ? courtsFromDb.map((c) => c.id) : COURT_IDS;
+	const courtQueues = await getQueuesForCourts(db, courtIds);
+	const courtCodes = await getCodesForCourts(db, courtIds);
+	const courtAdmins = await getAdminsForCourts(db, courtIds);
 	const myInQueue: Record<string, boolean> = {};
 	const myAdminStatus: Record<string, boolean> = {};
 	if (user) {
-		for (const cid of COURT_IDS) {
+		for (const cid of courtIds) {
 			myInQueue[cid] = await isInQueue(db, cid, user.id);
 			myAdminStatus[cid] = await isCourtAdmin(db, cid, user.id);
 		}
@@ -80,6 +84,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		myInQueue,
 		myAdminStatus,
 		coachingListings,
+		courts: courtsFromDb,
 		origin,
 		oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID },
 	};
@@ -139,7 +144,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 		const user = await getSessionUser(db, token);
 		if (!user) return { error: "Login required" };
 		const courtId = formData.get("courtId") as string;
-		if (!courtId || !["1", "2", "3"].includes(courtId)) return { error: "Invalid court" };
+		if (!courtId) return { error: "Invalid court" };
 		if (intent === "joinQueue") await joinCourtQueue(db, courtId, user.id);
 		else await leaveCourtQueue(db, courtId, user.id);
 		return redirect("/home");
@@ -152,7 +157,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 		if (!currentUser) return { error: "Login required" };
 		const courtId = formData.get("courtId") as string;
 		const targetUserId = formData.get("userId") as string;
-		if (!courtId || !targetUserId || !["1", "2", "3"].includes(courtId)) return { error: "Invalid request" };
+		if (!courtId || !targetUserId) return { error: "Invalid request" };
 		const isAdmin = await isCourtAdmin(db, courtId, currentUser.id);
 		if (!isAdmin) return { error: "Only admins can make others admin" };
 		await addCourtAdmin(db, courtId, targetUserId);
@@ -221,7 +226,7 @@ function formatTime(iso: string) {
 
 export default function Home() {
 	const loaderData = useLoaderData<typeof loader>();
-	const { user: loaderUser, posts: loaderPosts, courtQueues = {}, courtCodes = {}, courtAdmins = {}, myInQueue = {}, myAdminStatus = {}, coachingListings = [], origin = "" } = loaderData;
+	const { user: loaderUser, posts: loaderPosts, courtQueues = {}, courtCodes = {}, courtAdmins = {}, myInQueue = {}, myAdminStatus = {}, coachingListings = [], courts = [], origin = "" } = loaderData;
 	const [activeTab, setActiveTab] = useState<"feed" | "courts" | "reserve" | "coaching">("feed");
 	const [posts, setPosts] = useState<typeof loaderPosts>(loaderPosts);
 	const [user, setUser] = useState<typeof loaderUser>(loaderUser);
@@ -243,6 +248,7 @@ export default function Home() {
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [reservationId, setReservationId] = useState<string>("");
+	const courtsForTab = courts.length > 0 ? courts : MOCK_COURTS;
 
 	const savePosts = useCallback((next: Post[]) => {
 		setPosts(next);
@@ -344,7 +350,7 @@ export default function Home() {
 		setReservationId("");
 	};
 
-	const court = MOCK_COURTS.find((c) => c.id === selectedCourt);
+	const court = courtsForTab.find((c) => c.id === selectedCourt);
 	const today = new Date().toISOString().slice(0, 10);
 	const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
@@ -444,6 +450,12 @@ export default function Home() {
 							>
 								Lessons
 							</button>
+							<Link
+								to="/sessions"
+								className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+							>
+								Sessions
+							</Link>
 							<Link
 								to="/tournaments"
 								className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -581,13 +593,23 @@ export default function Home() {
 					<div className="space-y-6">
 						<h1 className="text-2xl font-bold text-gray-900 dark:text-white">Find courts</h1>
 						<p className="text-gray-600 dark:text-gray-400">Browse courts, join the queue (no paddles on the floor!), or reserve a spot.</p>
+						<div className="flex gap-2 mb-4">
+							<Link to="/courts" className="px-3 py-2 rounded-lg text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+								See all courts →
+							</Link>
+							<Link to="/guides" className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+								Guides & learn
+							</Link>
+						</div>
 						<div className="grid gap-4">
-							{MOCK_COURTS.map((c) => {
+							{courtsForTab.map((c) => {
 								const queue = courtQueues[c.id] ?? [];
 								const inQueue = myInQueue[c.id];
 								const myPosition = queue.findIndex((e) => e.userId === user?.id) + 1;
 								const roomCode = courtCodes[c.id];
 								const joinUrl = origin && roomCode ? `${origin}/join/${roomCode}` : "";
+								const courtCount = "courtCount" in c ? c.courtCount : c.courts;
+								const address = "address" in c ? c.address : c.address;
 								return (
 									<div
 										key={c.id}
@@ -595,9 +617,14 @@ export default function Home() {
 									>
 										<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 											<div>
-												<h2 className="font-semibold text-gray-900 dark:text-white">{c.name}</h2>
-												<p className="text-sm text-gray-500 dark:text-gray-400">{c.address}</p>
-												<p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">{c.courts} courts · {c.rating}★</p>
+												<Link to={`/courts/${c.id}`} className="font-semibold text-gray-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400">
+													{c.name}
+												</Link>
+												<p className="text-sm text-gray-500 dark:text-gray-400">{address ?? ""}</p>
+												<p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
+													{courtCount} courts
+													{"rating" in c ? ` · ${c.rating}★` : ""}
+												</p>
 											</div>
 											<button
 												type="button"
@@ -893,7 +920,7 @@ export default function Home() {
 								<div>
 									<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Court</label>
 									<div className="grid gap-2">
-										{MOCK_COURTS.map((c) => (
+										{courtsForTab.map((c) => (
 											<button
 												key={c.id}
 												type="button"
@@ -905,7 +932,10 @@ export default function Home() {
 												}`}
 											>
 												<span className="font-medium text-gray-900 dark:text-white">{c.name}</span>
-												<span className="text-sm text-gray-500 dark:text-gray-400">{c.courts} courts · {c.rating}★</span>
+												<span className="text-sm text-gray-500 dark:text-gray-400">
+													{"courtCount" in c ? c.courtCount : c.courts} courts
+													{"rating" in c ? ` · ${c.rating}★` : ""}
+												</span>
 											</button>
 										))}
 									</div>
