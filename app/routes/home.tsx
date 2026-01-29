@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Route } from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {
@@ -30,12 +30,61 @@ function isSlotTaken(slotIndex: number, courtId: string): boolean {
 }
 
 export default function Home() {
+	const [isLoggedIn, setIsLoggedIn] = useState(false);
+	const [user, setUser] = useState<{ email: string; name: string } | null>(null);
+	const [showLoginModal, setShowLoginModal] = useState(false);
+	const [loginEmail, setLoginEmail] = useState("");
+	const [loginPassword, setLoginPassword] = useState("");
+	const [isLoggingIn, setIsLoggingIn] = useState(false);
 	const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
 	const [selectedDate, setSelectedDate] = useState<string>("");
 	const [selectedTime, setSelectedTime] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [reservationId, setReservationId] = useState<string>("");
+
+	// Check localStorage on mount
+	useEffect(() => {
+		const savedUser = localStorage.getItem("pickleball_user");
+		if (savedUser) {
+			const userData = JSON.parse(savedUser);
+			setUser(userData);
+			setIsLoggedIn(true);
+		}
+	}, []);
+
+	const handleLogin = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!loginEmail.trim()) return;
+		
+		setIsLoggingIn(true);
+		// Simulate API call
+		await new Promise((r) => setTimeout(r, 1000));
+		
+		// Demo: accept any email/password
+		const userData = {
+			email: loginEmail,
+			name: loginEmail.split("@")[0] || "Player",
+		};
+		
+		localStorage.setItem("pickleball_user", JSON.stringify(userData));
+		setUser(userData);
+		setIsLoggedIn(true);
+		setShowLoginModal(false);
+		setLoginEmail("");
+		setLoginPassword("");
+		setIsLoggingIn(false);
+	};
+
+	const handleLogout = () => {
+		localStorage.removeItem("pickleball_user");
+		setUser(null);
+		setIsLoggedIn(false);
+		setSelectedCourt(null);
+		setSelectedDate("");
+		setSelectedTime(null);
+		setIsSuccess(false);
+	};
 
 	const handleReserve = async () => {
 		if (!selectedCourt || !selectedDate || !selectedTime) return;
@@ -62,6 +111,80 @@ export default function Home() {
 
 	return (
 		<div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950">
+			{/* Login Modal */}
+			{showLoginModal && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+					<div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-8 relative">
+						<button
+							onClick={() => setShowLoginModal(false)}
+							className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+						>
+							<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+							</svg>
+						</button>
+						<div className="mb-6">
+							<h2 className="text-3xl font-black text-gray-900 dark:text-white mb-2">
+								Welcome Back
+							</h2>
+							<p className="text-gray-600 dark:text-gray-400">
+								Demo login — enter any email and password to continue
+							</p>
+						</div>
+						<form onSubmit={handleLogin} className="space-y-4">
+							<div>
+								<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+									Email
+								</label>
+								<input
+									type="email"
+									value={loginEmail}
+									onChange={(e) => setLoginEmail(e.target.value)}
+									placeholder="player@example.com"
+									required
+									className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 dark:focus:border-emerald-500 focus:outline-none transition-colors"
+								/>
+							</div>
+							<div>
+								<label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+									Password
+								</label>
+								<input
+									type="password"
+									value={loginPassword}
+									onChange={(e) => setLoginPassword(e.target.value)}
+									placeholder="••••••••"
+									required
+									className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:border-emerald-500 dark:focus:border-emerald-500 focus:outline-none transition-colors"
+								/>
+							</div>
+							<button
+								type="submit"
+								disabled={isLoggingIn}
+								className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-lg disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transition-all"
+							>
+								{isLoggingIn ? (
+									<span className="flex items-center justify-center gap-2">
+										<svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+											<circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+											<path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+										</svg>
+										Logging in…
+									</span>
+								) : (
+									"Login"
+								)}
+							</button>
+						</form>
+						<div className="mt-6 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl">
+							<p className="text-sm text-emerald-700 dark:text-emerald-400">
+								<strong>Demo Mode:</strong> Any email and password will work. No real authentication required.
+							</p>
+						</div>
+					</div>
+				</div>
+			)}
+
 			{/* Navigation */}
 			<nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 border-b border-gray-200/50 dark:border-gray-800/50">
 				<div className="container mx-auto px-6 py-4">
@@ -73,9 +196,44 @@ export default function Home() {
 							<a href="#reserve" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Reserve Court</a>
 							<a href="#features" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Features</a>
 							<a href="#about" className="text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">About</a>
-							<button className="px-6 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full font-semibold hover:shadow-lg hover:scale-105 transition-all">
-								Get Started
-							</button>
+							{isLoggedIn ? (
+								<div className="flex items-center gap-4">
+									<span className="text-sm text-gray-700 dark:text-gray-300">
+										{user?.name}
+									</span>
+									<button
+										onClick={handleLogout}
+										className="px-6 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 transition-all"
+									>
+										Logout
+									</button>
+								</div>
+							) : (
+								<button
+									onClick={() => setShowLoginModal(true)}
+									className="px-6 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full font-semibold hover:shadow-lg hover:scale-105 transition-all"
+								>
+									Login
+								</button>
+							)}
+						</div>
+						{/* Mobile login button */}
+						<div className="md:hidden">
+							{isLoggedIn ? (
+								<button
+									onClick={handleLogout}
+									className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-sm font-semibold"
+								>
+									Logout
+								</button>
+							) : (
+								<button
+									onClick={() => setShowLoginModal(true)}
+									className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full text-sm font-semibold"
+								>
+									Login
+								</button>
+							)}
 						</div>
 					</div>
 				</div>
@@ -225,7 +383,27 @@ export default function Home() {
 						</p>
 					</div>
 
-					{!isSuccess ? (
+					{!isLoggedIn ? (
+						<div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-700 shadow-xl p-12 text-center">
+							<div className="w-20 h-20 mx-auto mb-6 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+								<svg className="w-10 h-10 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+									<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+								</svg>
+							</div>
+							<h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">
+								Login Required
+							</h3>
+							<p className="text-gray-600 dark:text-gray-300 mb-8 max-w-md mx-auto">
+								Please log in to reserve a court spot. This is a demo — you can use any email and password.
+							</p>
+							<button
+								onClick={() => setShowLoginModal(true)}
+								className="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-lg font-bold rounded-full hover:shadow-2xl hover:scale-105 transition-all"
+							>
+								Login to Reserve
+							</button>
+						</div>
+					) : !isSuccess ? (
 						<div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
 							<div className="p-6 md:p-8 space-y-6">
 								{/* Court selection */}
@@ -367,7 +545,7 @@ export default function Home() {
 								Reserve another spot
 							</button>
 						</div>
-					)}
+					) : null}
 				</div>
 			</section>
 
