@@ -1,0 +1,38 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["config:recommended", ":dependencyDashboard"],
+	"schedule": ["before 6am on monday"],
+	"timezone": "America/Los_Angeles",
+	"packageRules": [
+		{
+			"matchDepTypes": ["devDependencies"],
+			"matchUpdateTypes": ["minor", "patch"],
+			"automerge": true,
+			"automergeType": "pr"
+		},
+		{
+			"matchDepTypes": ["dependencies"],
+			"matchUpdateTypes": ["patch"],
+			"automerge": true,
+			"automergeType": "pr"
+		},
+		{
+			"matchPackagePatterns": ["^@react-router/", "react-router"],
+			"groupName": "react-router"
+		},
+		{
+			"matchPackagePatterns": ["^@biomejs/", "biome"],
+			"groupName": "biome"
+		},
+		{
+			"matchPackagePatterns": ["^@testing-library/"],
+			"groupName": "testing-library"
+		}
+	],
+	"lockFileMaintenance": {
+		"enabled": true,
+		"automerge": true
+	},
+	"prConcurrentLimit": 5,
+	"prCreation": "not-pending"
+}

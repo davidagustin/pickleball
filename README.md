@@ -97,6 +97,14 @@ Then open `/demo` or click **Try demo** on the landing page. You’ll be logged 
 | `npm run typecheck` | TypeScript + typegen check |
 | `npm run check` | Build + deploy dry-run       |
 
+### Dependency updates (Renovate)
+
+This repo uses [Renovate](https://docs.renovatebot.com/) to open PRs for dependency updates. To enable it:
+
+1. Install the [Renovate GitHub App](https://github.com/apps/renovate) on your account or org.
+2. Choose **Select repositories** and add this repo (or **All repositories**).
+3. Renovate will read `.github/renovate.json` and open PRs on a weekly schedule; devDependencies and patch updates are set to automerge after checks pass.
+
 ## Project layout
 
 ```
