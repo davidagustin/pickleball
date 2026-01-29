@@ -71,6 +71,20 @@ export async function getSessionUser(db: D1DB, token: string | null): Promise<Us
 	return user;
 }
 
+export async function getUser(db: D1DB, userId: string): Promise<User | null> {
+	const user = await db
+		.prepare("SELECT id, email, name, provider FROM users WHERE id = ?")
+		.bind(userId)
+		.first<User>();
+	return user;
+}
+
+/** Get current user from request cookie, or null if not logged in. */
+export async function getOptionalUser(db: D1DB, request: Request): Promise<User | null> {
+	const token = getSessionToken(request.headers.get("Cookie"));
+	return getSessionUser(db, token);
+}
+
 export async function getOrCreateDemoUser(db: D1DB, email: string, name: string): Promise<User> {
 	const existing = await db
 		.prepare("SELECT id, email, name, provider FROM users WHERE provider = 'demo' AND email = ?")
@@ -156,7 +170,13 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
        ORDER BY c.created_at ASC`,
 		)
 		.bind(...postIds)
-		.all<{ id: string; post_id: string; content: string; created_at: string; author_name: string }>();
+		.all<{
+			id: string;
+			post_id: string;
+			content: string;
+			created_at: string;
+			author_name: string;
+		}>();
 
 	const likesByPost = new Map<string, string[]>();
 	for (const r of likeRows.results ?? []) {
@@ -164,7 +184,10 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
 		arr.push(r.user_id);
 		likesByPost.set(r.post_id, arr);
 	}
-	const commentsByPost = new Map<string, { id: string; authorName: string; content: string; createdAt: string }[]>();
+	const commentsByPost = new Map<
+		string,
+		{ id: string; authorName: string; content: string; createdAt: string }[]
+	>();
 	for (const c of commentRows.results ?? []) {
 		const arr = commentsByPost.get(c.post_id) ?? [];
 		arr.push({
