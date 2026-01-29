@@ -82,9 +82,9 @@ wrangler d1 migrations apply DB --remote
 # or for local: wrangler d1 migrations apply DB --local
 ```
 
-Migrations `0007_seed_demo.sql` and `0013_seed_heavy.sql` through `0022_seed_chunk6.sql` add demo + heavy seed (many users, regions, courts, posts, likes, comments, friends, messages, tournaments) for a “widely used” feel. Regenerate with `node scripts/generate-seed.js` if needed.
+Migrations `0007_seed_demo.sql` and `0013_seed_heavy.sql` through `0022_seed_chunk6.sql` add demo + heavy seed. **0007** — Demo user (Alex), a few users, posts, courts, tournaments, coaching, friends, messages. **0013–0022** — Extra “widely used“ seed: many users (from [Random User API](https://randomuser.me/)), feed posts with likes/comments, courts, regions, play sessions (signups, notes, waitlist), tournaments, coaching listings, friend pairs, and message threads. Regenerate with `node scripts/generate-seed.js` if needed.
 
-Then open `/demo` or click **Try demo** on the landing page. You’ll be logged in as Alex and see the feed, court queues, tournaments (draft + in-progress bracket), coaching listings, friends, and messages.
+Then open `/demo` or click **Try demo** on the landing page. You’ll be logged in as Alex and see the feed, court queues, tournaments (draft + in-progress bracket), coaching listings, friends, and messages—plus the heavy seed so the app feels busy and active.
 
 ## Scripts
 
@@ -104,6 +104,13 @@ This repo uses [Renovate](https://docs.renovatebot.com/) to open PRs for depende
 1. Install the [Renovate GitHub App](https://github.com/apps/renovate) on your account or org.
 2. Choose **Select repositories** and add this repo (or **All repositories**).
 3. Renovate will read `.github/renovate.json` and open PRs on a weekly schedule; devDependencies and patch updates are set to automerge after checks pass.
+
+### Cursor worktrees and parallel agents
+
+This repo is set up for [Cursor parallel agents](https://cursor.com/docs/configuration/worktrees). When you run multiple agents (or Best-of-N across models), each agent uses its own Git worktree.
+
+- **Setup:** `.cursor/worktrees.json` runs `npm ci` and copies `.env` from the root worktree (if present) when a worktree is created. Unix and Windows commands are supported.
+- **No overlapping tasks:** Project rules (`.cursor/rules/project-rules.mdc`) require that parallel agents get **distinct, non-overlapping** tasks (e.g. one agent per feature, file, or layer). Partition work before spawning so no two agents touch the same scope.
 
 ## Project layout
 
@@ -129,6 +136,14 @@ migrations/
 scripts/
   generate-seed.js   # Generates heavy seed SQL (run and pipe into migrations or split for 0013/0014)
 ```
+
+## Code review (summary)
+
+A full code review recommended:
+
+- **Must fix:** OAuth state validation (store/validate `state` in callback); align Post/user types and feed “liked by me” in `home.tsx` with server data.
+- **Should fix:** N+1 in `getPosts`, `getBracketMatches`, `getPlaySessionsForWeek`, `getConversations`; error logging in `db.server` catch blocks; basic e2e and DB test coverage.
+- **Consider:** Splitting `db.server` by domain; shared auth helper; batched court/queue/admin helpers.
 
 ---
 
