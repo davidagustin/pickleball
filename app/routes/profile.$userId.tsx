@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useLoaderData } from "react-router";
+import { AppShell } from "~/components/AppShell";
 import {
 	acceptFriendRequest,
 	getFriendStatus,
@@ -125,43 +126,20 @@ export default function ProfileUserId() {
 
 	if (!profileUser) {
 		return (
-			<div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
-				<p className="text-gray-600 dark:text-gray-400">User not found.</p>
-				<Link to="/home" className="text-emerald-600 ml-2">
-					Back to home
-				</Link>
-			</div>
+			<AppShell user={currentUser}>
+				<div className="flex items-center justify-center py-12">
+					<p className="text-gray-600 dark:text-gray-400">User not found.</p>
+					<Link to="/home" className="text-emerald-600 ml-2">
+						Back to home
+					</Link>
+				</div>
+			</AppShell>
 		);
 	}
 
 	return (
-		<div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-			<nav className="sticky top-0 z-40 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-				<div className="container mx-auto px-4 py-3 max-w-4xl flex items-center justify-between">
-					<Link
-						to="/home"
-						className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent"
-					>
-						Pickleball
-					</Link>
-					<div className="flex gap-2">
-						<Link
-							to="/friends"
-							className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-						>
-							Friends
-						</Link>
-						<Link
-							to="/messages"
-							className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-						>
-							Messages
-						</Link>
-					</div>
-				</div>
-			</nav>
-
-			<main className="container mx-auto px-4 py-8 max-w-2xl">
+		<AppShell user={currentUser}>
+			<div className="mx-auto max-w-2xl">
 				{/* Profile header */}
 				<div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
 					<div className="flex items-center gap-4 mb-4">
@@ -470,7 +448,7 @@ export default function ProfileUserId() {
 						</form>
 					)}
 				</div>
-			</main>
-		</div>
+			</div>
+		</AppShell>
 	);
 }

@@ -2,8 +2,8 @@
 
 @theme {
 	--font-sans:
-		"Outfit", "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
-		"Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+		"Outfit", "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+		"Segoe UI Symbol", "Noto Color Emoji";
 }
 
 html,
@@ -16,7 +16,8 @@ body {
 }
 
 @keyframes gradient {
-	0%, 100% {
+	0%,
+	100% {
 		background-position: 0% 50%;
 	}
 	50% {
@@ -50,4 +51,13 @@ html {
 
 ::-webkit-scrollbar-thumb:hover {
 	background: linear-gradient(to bottom, #059669, #0d9488);
+}
+
+/* Hide scrollbar but keep scroll (e.g. top nav) */
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
 }

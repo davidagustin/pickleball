@@ -1,28 +1,28 @@
 import { useState } from "react";
-import { Link, useLoaderData, useActionData, useSearchParams } from "react-router";
-import { redirect } from "react-router";
-import type { Route } from "./+types/sessions";
+import { Link, redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { AppShell } from "~/components/AppShell";
 import {
-	getSessionToken,
-	getSessionUser,
-	getRegions,
+	addSessionNote,
+	createPlaySession,
 	getCourts,
 	getPlaySessionsForWeek,
-	getSessionSignups,
+	getRegions,
 	getSessionNotes,
+	getSessionSignups,
+	getSessionToken,
+	getSessionUser,
 	getSessionWaitlist,
-	createPlaySession,
 	joinPlaySession,
-	leavePlaySession,
 	joinSessionWaitlist,
+	leavePlaySession,
 	leaveSessionWaitlist,
-	addSessionNote,
 	type PlaySession,
 	type SessionNote,
 	type SessionSignup,
 } from "~/lib/db.server";
+import type { Route } from "./+types/sessions";
 
-export function meta({}: Route.MetaArgs) {
+export function meta(_args: Route.MetaArgs) {
 	return [{ title: "Play sessions - Pickleball" }];
 }
 
@@ -45,7 +45,18 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const { start: startDate, end: endDate } = getWeekRange(weekOffset);
 
 	if (!db) {
-		return { regions: [], courts: [], sessions: [], user: null, startDate, endDate, signups: [], notes: [], waitlist: [], selectedId: null };
+		return {
+			regions: [],
+			courts: [],
+			sessions: [],
+			user: null,
+			startDate,
+			endDate,
+			signups: [],
+			notes: [],
+			waitlist: [],
+			selectedId: null,
+		};
 	}
 	const token = getSessionToken(request.headers.get("Cookie") ?? null);
 	const user = await getSessionUser(db, token);
@@ -65,7 +76,18 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			getSessionWaitlist(db, selectedId),
 		]);
 	}
-	return { regions, courts, sessions, user, startDate, endDate, signups, notes, waitlist, selectedId };
+	return {
+		regions,
+		courts,
+		sessions,
+		user,
+		startDate,
+		endDate,
+		signups,
+		notes,
+		waitlist,
+		selectedId,
+	};
 }
 
 export async function action({ context, request }: Route.ActionArgs) {
@@ -78,11 +100,12 @@ export async function action({ context, request }: Route.ActionArgs) {
 	if (!user && intent !== "addNote") return redirect("/home?login=1");
 
 	if (intent === "create") {
+		if (!user) return redirect("/home?login=1");
 		const venue = (formData.get("venue") as string)?.trim();
 		const sessionDate = formData.get("sessionDate") as string;
 		const sessionTime = formData.get("sessionTime") as string;
 		if (!venue || !sessionDate || !sessionTime) return { error: "Venue, date, and time required" };
-		await createPlaySession(db, user!.id, {
+		await createPlaySession(db, user.id, {
 			venue,
 			sessionDate,
 			sessionTime,
@@ -100,17 +123,19 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "join" || intent === "leave") {
+		if (!user) return redirect("/home?login=1");
 		const sessionId = formData.get("sessionId") as string;
 		if (!sessionId) return { error: "Session required" };
-		if (intent === "join") await joinPlaySession(db, sessionId, user!.id);
-		else await leavePlaySession(db, sessionId, user!.id);
+		if (intent === "join") await joinPlaySession(db, sessionId, user.id);
+		else await leavePlaySession(db, sessionId, user.id);
 		return redirect(request.url);
 	}
 	if (intent === "joinWaitlist" || intent === "leaveWaitlist") {
+		if (!user) return redirect("/home?login=1");
 		const sessionId = formData.get("sessionId") as string;
 		if (!sessionId) return { error: "Session required" };
-		if (intent === "joinWaitlist") await joinSessionWaitlist(db, sessionId, user!.id);
-		else await leaveSessionWaitlist(db, sessionId, user!.id);
+		if (intent === "joinWaitlist") await joinSessionWaitlist(db, sessionId, user.id);
+		else await leaveSessionWaitlist(db, sessionId, user.id);
 		return redirect(request.url);
 	}
 
@@ -129,9 +154,20 @@ export async function action({ context, request }: Route.ActionArgs) {
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function Sessions() {
-	const { regions, courts, sessions, user, startDate, endDate, signups, notes, waitlist, selectedId } = useLoaderData<typeof loader>();
+	const {
+		regions,
+		courts,
+		sessions,
+		user,
+		startDate,
+		endDate,
+		signups,
+		notes,
+		waitlist,
+		selectedId,
+	} = useLoaderData<typeof loader>();
 	const actionData = useActionData<typeof action>();
-	const [searchParams, setSearchParams] = useSearchParams();
+	const [_searchParams, setSearchParams] = useSearchParams();
 	const [view, setView] = useState<"calendar" | "list">("calendar");
 	const [showAddForm, setShowAddForm] = useState(false);
 
@@ -149,29 +185,14 @@ export default function Sessions() {
 	}, {});
 
 	return (
-		<div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-			<nav className="sticky top-0 z-40 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-				<div className="container mx-auto px-4 py-3 max-w-5xl flex items-center justify-between">
-					<Link to="/home" className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-						Pickleball
-					</Link>
-					<div className="flex gap-2">
-						<Link to="/home" className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-							Home
-						</Link>
-						<Link to="/tournaments" className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-							Tournaments
-						</Link>
-					</div>
-				</div>
-			</nav>
-
-			<main className="container mx-auto px-4 py-6 max-w-5xl">
+		<AppShell user={user}>
+			<div className="mx-auto max-w-4xl">
 				<div className="flex flex-wrap items-center justify-between gap-4 mb-6">
 					<div>
 						<h1 className="text-2xl font-bold text-gray-900 dark:text-white">Play sessions</h1>
 						<p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-							Arrange play with others — not court reservation. Add your name so you always have enough players.
+							Arrange play with others — not court reservation. Add your name so you always have
+							enough players.
 						</p>
 					</div>
 					<div className="flex items-center gap-2">
@@ -202,7 +223,10 @@ export default function Sessions() {
 
 				{!user && (
 					<div className="mb-4 px-4 py-3 rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 text-sm">
-						<Link to="/demo" className="font-medium underline">Try demo</Link> or log in to add a session or add your name to one.
+						<Link to="/demo" className="font-medium underline">
+							Try demo
+						</Link>{" "}
+						or log in to add a session or add your name to one.
 					</div>
 				)}
 
@@ -210,18 +234,31 @@ export default function Sessions() {
 				<div className="flex items-center gap-2 mb-4">
 					<button
 						type="button"
-						onClick={() => setSearchParams((p) => ({ ...p, week: String(Number(p.get("week") ?? 0) - 1) }))}
+						onClick={() =>
+							setSearchParams((p) => ({ ...p, week: String(Number(p.get("week") ?? 0) - 1) }))
+						}
 						className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
 					>
 						← Previous
 					</button>
 					<span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-						{new Date(startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} –{" "}
-						{new Date(endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+						{new Date(startDate).toLocaleDateString("en-US", {
+							month: "short",
+							day: "numeric",
+							year: "numeric",
+						})}{" "}
+						–{" "}
+						{new Date(endDate).toLocaleDateString("en-US", {
+							month: "short",
+							day: "numeric",
+							year: "numeric",
+						})}
 					</span>
 					<button
 						type="button"
-						onClick={() => setSearchParams((p) => ({ ...p, week: String(Number(p.get("week") ?? 0) + 1) }))}
+						onClick={() =>
+							setSearchParams((p) => ({ ...p, week: String(Number(p.get("week") ?? 0) + 1) }))
+						}
 						className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
 					>
 						Next →
@@ -231,7 +268,10 @@ export default function Sessions() {
 				{view === "calendar" && (
 					<div className="grid grid-cols-7 gap-2 mb-6">
 						{weekDays.map((day) => (
-							<div key={day} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 p-2 min-h-[120px]">
+							<div
+								key={day}
+								className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 p-2 min-h-[120px]"
+							>
 								<div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
 									{DAY_LABELS[new Date(day).getDay()]} {day.slice(5)}
 								</div>
@@ -246,13 +286,21 @@ export default function Sessions() {
 													? "ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20"
 													: "border-gray-200 dark:border-gray-600 hover:border-emerald-400 bg-white dark:bg-gray-800"
 											}`}
-											style={s.regionColor ? { borderLeftColor: s.regionColor, borderLeftWidth: "3px" } : undefined}
+											style={
+												s.regionColor
+													? { borderLeftColor: s.regionColor, borderLeftWidth: "3px" }
+													: undefined
+											}
 											title={`${s.venue} · ${s.sessionTime} · ${s.signupCount}/${s.playerMin}${s.playerMax ? `–${s.playerMax}` : "+"} · ${s.creatorName}`}
 										>
 											<span className="font-medium">{s.sessionTime}</span>
-											<span className="block truncate text-gray-600 dark:text-gray-400">{s.venue}</span>
+											<span className="block truncate text-gray-600 dark:text-gray-400">
+												{s.venue}
+											</span>
 											{s.isRecurring && s.recurrenceDay && (
-												<span className="block text-xs text-gray-500 dark:text-gray-500">Every {s.recurrenceDay}</span>
+												<span className="block text-xs text-gray-500 dark:text-gray-500">
+													Every {s.recurrenceDay}
+												</span>
 											)}
 											<span className="text-gray-500 dark:text-gray-500">
 												{s.signupCount}/{s.playerMin}
@@ -269,7 +317,9 @@ export default function Sessions() {
 				{view === "list" && (
 					<ul className="space-y-3 mb-6">
 						{sessions.length === 0 ? (
-							<li className="text-gray-500 dark:text-gray-400 py-8 text-center">No sessions this week. Add one above.</li>
+							<li className="text-gray-500 dark:text-gray-400 py-8 text-center">
+								No sessions this week. Add one above.
+							</li>
 						) : (
 							sessions.map((s) => (
 								<li key={s.id}>
@@ -284,7 +334,9 @@ export default function Sessions() {
 									>
 										<div className="flex items-center justify-between gap-2">
 											<div>
-												<span className="font-semibold text-gray-900 dark:text-white">{s.venue}</span>
+												<span className="font-semibold text-gray-900 dark:text-white">
+													{s.venue}
+												</span>
 												<span className="text-gray-500 dark:text-gray-400 ml-2">
 													{s.sessionDate} · {s.sessionTime}
 												</span>
@@ -294,10 +346,18 @@ export default function Sessions() {
 												{s.gameOn && " · Game on!"}
 											</span>
 										</div>
-										{s.eventName && <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{s.eventName}</p>}
-										{s.skillLevel && <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">Skill: {s.skillLevel}</p>}
+										{s.eventName && (
+											<p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{s.eventName}</p>
+										)}
+										{s.skillLevel && (
+											<p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
+												Skill: {s.skillLevel}
+											</p>
+										)}
 										{s.isRecurring && s.recurrenceDay && (
-											<p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">Every {s.recurrenceDay}</p>
+											<p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
+												Every {s.recurrenceDay}
+											</p>
 										)}
 									</button>
 								</li>
@@ -311,26 +371,45 @@ export default function Sessions() {
 					<div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
 						<div className="flex items-start justify-between gap-4 mb-4">
 							<div>
-								<h2 className="text-xl font-bold text-gray-900 dark:text-white">{selectedSession.venue}</h2>
+								<h2 className="text-xl font-bold text-gray-900 dark:text-white">
+									{selectedSession.venue}
+								</h2>
 								<p className="text-gray-500 dark:text-gray-400">
 									{selectedSession.isRecurring && selectedSession.recurrenceDay
 										? `Every ${selectedSession.recurrenceDay} · ${selectedSession.sessionTime}`
 										: `${selectedSession.sessionDate} · ${selectedSession.sessionTime}`}
 									{selectedSession.regionName && ` · ${selectedSession.regionName}`}
 								</p>
-								{selectedSession.eventName && <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{selectedSession.eventName}</p>}
-								{selectedSession.skillLevel && <p className="text-xs text-gray-500 dark:text-gray-500">Skill: {selectedSession.skillLevel}</p>}
+								{selectedSession.eventName && (
+									<p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+										{selectedSession.eventName}
+									</p>
+								)}
+								{selectedSession.skillLevel && (
+									<p className="text-xs text-gray-500 dark:text-gray-500">
+										Skill: {selectedSession.skillLevel}
+									</p>
+								)}
 								<p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-									Created by {selectedSession.creatorName} · {selectedSession.signupCount}/{selectedSession.playerMin}
+									Created by {selectedSession.creatorName} · {selectedSession.signupCount}/
+									{selectedSession.playerMin}
 									{selectedSession.playerMax ? `–${selectedSession.playerMax}` : "+"} players
 									{selectedSession.gameOn && (
-										<span className="ml-2 font-medium text-emerald-600 dark:text-emerald-400">Game on!</span>
+										<span className="ml-2 font-medium text-emerald-600 dark:text-emerald-400">
+											Game on!
+										</span>
 									)}
 								</p>
 							</div>
 							<button
 								type="button"
-								onClick={() => setSearchParams((p) => { const next = new URLSearchParams(p); next.delete("session"); return next; })}
+								onClick={() =>
+									setSearchParams((p) => {
+										const next = new URLSearchParams(p);
+										next.delete("session");
+										return next;
+									})
+								}
 								className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
 							>
 								Close
@@ -338,13 +417,20 @@ export default function Sessions() {
 						</div>
 
 						<div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-							<h3 className="font-semibold text-gray-900 dark:text-white mb-2">Players signed up</h3>
+							<h3 className="font-semibold text-gray-900 dark:text-white mb-2">
+								Players signed up
+							</h3>
 							{signups.length === 0 ? (
-								<p className="text-sm text-gray-500 dark:text-gray-400">No one yet. Add your name!</p>
+								<p className="text-sm text-gray-500 dark:text-gray-400">
+									No one yet. Add your name!
+								</p>
 							) : (
 								<ul className="flex flex-wrap gap-2 mb-4">
 									{signups.map((s) => (
-										<li key={s.userId} className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-sm font-medium text-gray-800 dark:text-gray-200">
+										<li
+											key={s.userId}
+											className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-sm font-medium text-gray-800 dark:text-gray-200"
+										>
 											{s.userName}
 										</li>
 									))}
@@ -356,7 +442,10 @@ export default function Sessions() {
 										<form method="post">
 											<input type="hidden" name="intent" value="leave" />
 											<input type="hidden" name="sessionId" value={selectedSession.id} />
-											<button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+											<button
+												type="submit"
+												className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+											>
 												Remove my name
 											</button>
 										</form>
@@ -364,7 +453,10 @@ export default function Sessions() {
 										<form method="post">
 											<input type="hidden" name="intent" value="join" />
 											<input type="hidden" name="sessionId" value={selectedSession.id} />
-											<button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500">
+											<button
+												type="submit"
+												className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500"
+											>
 												Add my name
 											</button>
 										</form>
@@ -385,7 +477,10 @@ export default function Sessions() {
 										<form method="post">
 											<input type="hidden" name="intent" value="leaveWaitlist" />
 											<input type="hidden" name="sessionId" value={selectedSession.id} />
-											<button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+											<button
+												type="submit"
+												className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+											>
 												Leave waitlist
 											</button>
 										</form>
@@ -393,7 +488,10 @@ export default function Sessions() {
 										<form method="post">
 											<input type="hidden" name="intent" value="joinWaitlist" />
 											<input type="hidden" name="sessionId" value={selectedSession.id} />
-											<button type="submit" className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
+											<button
+												type="submit"
+												className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500"
+											>
 												Join waitlist
 											</button>
 										</form>
@@ -404,12 +502,17 @@ export default function Sessions() {
 
 						<div className="border-t border-gray-200 dark:border-gray-700 pt-4">
 							<h3 className="font-semibold text-gray-900 dark:text-white mb-2">Notes</h3>
-							<p className="text-xs text-gray-500 dark:text-gray-400 mb-2">e.g. &quot;I might be a little late&quot; or &quot;Does anyone have an extra paddle?&quot;</p>
+							<p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+								e.g. &quot;I might be a little late&quot; or &quot;Does anyone have an extra
+								paddle?&quot;
+							</p>
 							{notes.length > 0 && (
 								<ul className="space-y-2 mb-4">
 									{notes.map((n) => (
 										<li key={n.id} className="text-sm">
-											<span className="font-medium text-gray-800 dark:text-gray-200">{n.userName}:</span>{" "}
+											<span className="font-medium text-gray-800 dark:text-gray-200">
+												{n.userName}:
+											</span>{" "}
 											<span className="text-gray-700 dark:text-gray-300">{n.content}</span>
 										</li>
 									))}
@@ -425,7 +528,10 @@ export default function Sessions() {
 										placeholder="Add a note..."
 										className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
 									/>
-									<button type="submit" className="px-3 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600">
+									<button
+										type="submit"
+										className="px-3 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600"
+									>
 										Post
 									</button>
 								</form>
@@ -442,8 +548,14 @@ export default function Sessions() {
 							<form method="post" className="space-y-4">
 								<input type="hidden" name="intent" value="create" />
 								<div>
-									<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Venue / location *</label>
+									<label
+										htmlFor="session-venue"
+										className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+									>
+										Venue / location *
+									</label>
 									<input
+										id="session-venue"
 										type="text"
 										name="venue"
 										required
@@ -453,8 +565,14 @@ export default function Sessions() {
 								</div>
 								<div className="grid grid-cols-2 gap-4">
 									<div>
-										<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date *</label>
+										<label
+											htmlFor="session-date"
+											className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+										>
+											Date *
+										</label>
 										<input
+											id="session-date"
 											type="date"
 											name="sessionDate"
 											required
@@ -462,8 +580,14 @@ export default function Sessions() {
 										/>
 									</div>
 									<div>
-										<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Time *</label>
+										<label
+											htmlFor="session-time"
+											className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+										>
+											Time *
+										</label>
 										<input
+											id="session-time"
 											type="text"
 											name="sessionTime"
 											required
@@ -473,8 +597,14 @@ export default function Sessions() {
 									</div>
 								</div>
 								<div>
-									<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Region / area</label>
+									<label
+										htmlFor="session-regionId"
+										className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+									>
+										Region / area
+									</label>
 									<select
+										id="session-regionId"
 										name="regionId"
 										className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
 									>
@@ -487,8 +617,14 @@ export default function Sessions() {
 									</select>
 								</div>
 								<div>
-									<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Skill level</label>
+									<label
+										htmlFor="session-skillLevel"
+										className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+									>
+										Skill level
+									</label>
 									<input
+										id="session-skillLevel"
 										type="text"
 										name="skillLevel"
 										placeholder="e.g. 2.5-3.5, All levels"
@@ -496,8 +632,14 @@ export default function Sessions() {
 									/>
 								</div>
 								<div>
-									<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
+									<label
+										htmlFor="session-formatType"
+										className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+									>
+										Format
+									</label>
 									<select
+										id="session-formatType"
 										name="formatType"
 										className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
 									>
@@ -508,8 +650,14 @@ export default function Sessions() {
 									</select>
 								</div>
 								<div>
-									<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Event name</label>
+									<label
+										htmlFor="session-eventName"
+										className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+									>
+										Event name
+									</label>
 									<input
+										id="session-eventName"
 										type="text"
 										name="eventName"
 										placeholder="e.g. Saturday round-robin"
@@ -518,8 +666,14 @@ export default function Sessions() {
 								</div>
 								<div className="grid grid-cols-2 gap-4">
 									<div>
-										<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min players</label>
+										<label
+											htmlFor="session-playerMin"
+											className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+										>
+											Min players
+										</label>
 										<input
+											id="session-playerMin"
 											type="number"
 											name="playerMin"
 											min={1}
@@ -528,8 +682,14 @@ export default function Sessions() {
 										/>
 									</div>
 									<div>
-										<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max players</label>
+										<label
+											htmlFor="session-playerMax"
+											className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+										>
+											Max players
+										</label>
 										<input
+											id="session-playerMax"
 											type="number"
 											name="playerMax"
 											min={1}
@@ -539,32 +699,79 @@ export default function Sessions() {
 									</div>
 								</div>
 								<div className="flex items-center gap-2">
-									<input type="checkbox" name="isRecurring" id="isRecurring" className="rounded border-gray-300 dark:border-gray-600" />
-									<label htmlFor="isRecurring" className="text-sm font-medium text-gray-700 dark:text-gray-300">Repeat weekly</label>
+									<input
+										type="checkbox"
+										name="isRecurring"
+										id="isRecurring"
+										className="rounded border-gray-300 dark:border-gray-600"
+									/>
+									<label
+										htmlFor="isRecurring"
+										className="text-sm font-medium text-gray-700 dark:text-gray-300"
+									>
+										Repeat weekly
+									</label>
 								</div>
 								<div>
-									<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Day of week (if recurring)</label>
-									<select name="recurrenceDay" className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm">
+									<label
+										htmlFor="session-recurrenceDay"
+										className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+									>
+										Day of week (if recurring)
+									</label>
+									<select
+										id="session-recurrenceDay"
+										name="recurrenceDay"
+										className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+									>
 										<option value="">—</option>
-										{["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((d) => (
-											<option key={d} value={d}>{d}</option>
+										{[
+											"Monday",
+											"Tuesday",
+											"Wednesday",
+											"Thursday",
+											"Friday",
+											"Saturday",
+											"Sunday",
+										].map((d) => (
+											<option key={d} value={d}>
+												{d}
+											</option>
 										))}
 									</select>
 								</div>
 								<div>
-									<label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Court (optional)</label>
-									<select name="courtId" className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm">
+									<label
+										htmlFor="session-courtId"
+										className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+									>
+										Court (optional)
+									</label>
+									<select
+										id="session-courtId"
+										name="courtId"
+										className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm"
+									>
 										<option value="">—</option>
 										{courts.map((c) => (
-											<option key={c.id} value={c.id}>{c.name}</option>
+											<option key={c.id} value={c.id}>
+												{c.name}
+											</option>
 										))}
 									</select>
 								</div>
 								<div className="flex gap-2 pt-2">
-									<button type="submit" className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500">
+									<button
+										type="submit"
+										className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500"
+									>
 										Create session
 									</button>
-									<button type="button" onClick={() => setShowAddForm(false)} className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700">
+									<button
+										type="button"
+										onClick={() => setShowAddForm(false)}
+										className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700"
+									>
 										Cancel
 									</button>
 								</div>
@@ -572,7 +779,7 @@ export default function Sessions() {
 						</div>
 					</div>
 				)}
-			</main>
-		</div>
+			</div>
+		</AppShell>
 	);
 }

@@ -1,9 +1,9 @@
-import { Link, useLoaderData } from "react-router";
-import { redirect } from "react-router";
+import { Link, redirect, useLoaderData } from "react-router";
+import { AppShell } from "~/components/AppShell";
+import { createTournament, getSessionToken, getSessionUser, getTournaments } from "~/lib/db.server";
 import type { Route } from "./+types/tournaments";
-import { getSessionToken, getSessionUser, getTournaments, createTournament } from "~/lib/db.server";
 
-export function meta({}: Route.MetaArgs) {
+export function meta(_args: Route.MetaArgs) {
 	return [{ title: "Tournaments - Pickleball" }];
 }
 
@@ -39,21 +39,8 @@ export default function Tournaments() {
 	const { tournaments, user } = useLoaderData<typeof loader>();
 
 	return (
-		<div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-			<nav className="sticky top-0 z-40 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-				<div className="container mx-auto px-4 py-3 max-w-4xl flex items-center justify-between">
-					<Link to="/home" className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-						Pickleball
-					</Link>
-					<div className="flex gap-2">
-						<Link to="/home" className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-							Home
-						</Link>
-					</div>
-				</div>
-			</nav>
-
-			<main className="container mx-auto px-4 py-8 max-w-4xl">
+		<AppShell user={user}>
+			<div className="mx-auto max-w-4xl">
 				<div className="flex items-center justify-between mb-8">
 					<h1 className="text-3xl font-bold text-gray-900 dark:text-white">Tournaments</h1>
 					{user && (
@@ -66,7 +53,10 @@ export default function Tournaments() {
 								required
 								className="mr-2 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
 							/>
-							<button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500">
+							<button
+								type="submit"
+								className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500"
+							>
 								Create tournament
 							</button>
 						</form>
@@ -75,13 +65,21 @@ export default function Tournaments() {
 
 				{!user && (
 					<p className="text-gray-600 dark:text-gray-400 mb-6">
-						<Link to="/home" className="text-emerald-600 dark:text-emerald-400 font-medium hover:underline">Log in</Link> to create a tournament.
+						<Link
+							to="/home"
+							className="text-emerald-600 dark:text-emerald-400 font-medium hover:underline"
+						>
+							Log in
+						</Link>{" "}
+						to create a tournament.
 					</p>
 				)}
 
 				<div className="space-y-4">
 					{tournaments.length === 0 ? (
-						<p className="text-gray-500 dark:text-gray-400">No tournaments yet. Create one to get started.</p>
+						<p className="text-gray-500 dark:text-gray-400">
+							No tournaments yet. Create one to get started.
+						</p>
 					) : (
 						tournaments.map((t) => (
 							<Link
@@ -92,15 +90,19 @@ export default function Tournaments() {
 								<div className="flex items-center justify-between">
 									<div>
 										<h2 className="font-semibold text-gray-900 dark:text-white">{t.name}</h2>
-										<p className="text-sm text-gray-500 dark:text-gray-400">Admin: {t.adminName} · {t.status}</p>
+										<p className="text-sm text-gray-500 dark:text-gray-400">
+											Admin: {t.adminName} · {t.status}
+										</p>
 									</div>
-									<span className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">View →</span>
+									<span className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">
+										View →
+									</span>
 								</div>
 							</Link>
 						))
 					)}
 				</div>
-			</main>
-		</div>
+			</div>
+		</AppShell>
 	);
 }

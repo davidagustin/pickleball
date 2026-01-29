@@ -4,7 +4,8 @@ Connect with players, find courts, and find games—all in one place.
 
 ## What it does
 
-- **Landing page** (`/`) — Intro and CTAs; **Try demo** logs you in as a seeded user to see all features.
+- **Landing page** (`/`) — Intro and CTAs; **Log in** goes to the app feed; **Try demo** logs you in as a seeded user to see all features.
+- **App layout** — After login you land on a **Facebook-like** feed page with a top bar (logo, search, nav: Home, Friends, Messages, Courts, Sessions, Tournaments) and a left sidebar (profile + same links) on desktop. All main app routes share this shell.
 - **Community feed** — Post, like, and comment. Ask for partners, share court tips.
 - **Find courts** — Browse courts; join a digital court queue (paddle stack) and use room codes / QR to join.
 - **Reserve** — Pick a court, date, and time (demo flow; no real booking).
@@ -98,10 +99,12 @@ Then open `/demo` or click **Try demo** on the landing page. You’ll be logged 
 
 ```
 app/
+  components/
+    AppShell.tsx  # Facebook-style layout: top bar + left sidebar (Home, Friends, Messages, Courts, etc.)
   routes/
     landing.tsx   # Landing page (index /)
     demo.tsx      # One-click demo login (/demo)
-    home.tsx      # App: feed, courts, reserve, lessons, sessions link (/home)
+    home.tsx      # App: feed-first page with tabs (Feed, Courts, Reserve, Lessons); uses AppShell
     courts.tsx, courts.new.tsx, courts.$courtId.tsx
     sessions.tsx
     guides.tsx, paddles.tsx, paddles.$paddleId.tsx
