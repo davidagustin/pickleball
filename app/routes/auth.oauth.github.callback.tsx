@@ -4,11 +4,19 @@ import {
 	getOrCreateOAuthUser,
 	createSession,
 	sessionCookie,
+	getOAuthStateFromCookie,
+	clearOAuthStateCookie,
 } from "~/lib/db.server";
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const url = new URL(request.url);
 	const code = url.searchParams.get("code");
+	const stateFromProvider = url.searchParams.get("state");
+	const cookieHeader = request.headers.get("Cookie");
+	const stateFromCookie = getOAuthStateFromCookie(cookieHeader);
+	if (!stateFromProvider || !stateFromCookie || stateFromProvider !== stateFromCookie) {
+		return redirect("/home?error=oauth_failed");
+	}
 	const env = context.cloudflare.env;
 	const db = env.DB;
 	if (!code || !env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
@@ -49,9 +57,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		profile.name ?? profile.login ?? "User"
 	);
 	const token = await createSession(db, user.id);
-	return redirect("/home", {
-		headers: {
-			"Set-Cookie": sessionCookie(token),
-		},
-	});
+	const headers = new Headers();
+	headers.append("Set-Cookie", sessionCookie(token));
+	headers.append("Set-Cookie", clearOAuthStateCookie());
+	return redirect("/home", { headers });
 }

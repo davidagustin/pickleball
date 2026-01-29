@@ -25,6 +25,7 @@ import {
 	createCoachingListing,
 	deleteCoachingListing,
 	getCourts,
+	type Post,
 } from "~/lib/db.server";
 
 export function meta(_: Route.MetaArgs) {
@@ -226,7 +227,8 @@ function formatTime(iso: string) {
 
 export default function Home() {
 	const loaderData = useLoaderData<typeof loader>();
-	const { user: loaderUser, posts: loaderPosts, courtQueues = {}, courtCodes = {}, courtAdmins = {}, myInQueue = {}, myAdminStatus = {}, coachingListings = [], courts = [], origin = "" } = loaderData;
+	const { 		user: loaderUser, posts: loaderPosts, courtQueues = {}, courtCodes = {}, courtAdmins = {}, myInQueue = {}, myAdminStatus = {}, coachingListings = [], courts = [], origin = "" } = loaderData;
+	const likeFetcher = useFetcher();
 	const [activeTab, setActiveTab] = useState<"feed" | "courts" | "reserve" | "coaching">("feed");
 	const [posts, setPosts] = useState<typeof loaderPosts>(loaderPosts);
 	const [user, setUser] = useState<typeof loaderUser>(loaderUser);
@@ -285,12 +287,12 @@ export default function Home() {
 		await new Promise((r) => setTimeout(r, 400));
 		const post: Post = {
 			id: `post-${Date.now()}`,
-			authorId: user.email,
+			authorId: user.id,
 			authorName: user.name,
 			content: newPostContent.trim(),
 			createdAt: new Date().toISOString(),
 			likes: 0,
-			likedBy: [],
+			likedByMe: false,
 			comments: [],
 		};
 		savePosts([post, ...posts]);
@@ -305,14 +307,14 @@ export default function Home() {
 		}
 		const next = posts.map((p) => {
 			if (p.id !== postId) return p;
-			const liked = p.likedBy.includes(user.email);
 			return {
 				...p,
-				likes: liked ? p.likes - 1 : p.likes + 1,
-				likedBy: liked ? p.likedBy.filter((e) => e !== user.email) : [...p.likedBy, user.email],
+				likedByMe: !p.likedByMe,
+				likes: p.likes + (p.likedByMe ? -1 : 1),
 			};
 		});
 		savePosts(next);
+		likeFetcher.submit({ intent: "like", postId }, { method: "post" });
 	};
 
 	const handleAddComment = (postId: string) => {
@@ -539,12 +541,12 @@ export default function Home() {
 											<button
 												onClick={() => handleLike(post.id)}
 												className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-													user && post.likedBy.includes(user.email)
+													user && post.likedByMe
 														? "text-emerald-600 dark:text-emerald-400"
 														: "text-gray-500 dark:text-gray-400 hover:text-emerald-600"
 												}`}
 											>
-												<svg className="w-5 h-5" fill={user && post.likedBy.includes(user.email) ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+												<svg className="w-5 h-5" fill={user && post.likedByMe ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
 													<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
 												</svg>
 												{post.likes}
@@ -569,7 +571,12 @@ export default function Home() {
 											<input
 												value={commentInputs[post.id] ?? ""}
 												onChange={(e) => setCommentInputs((prev) => ({ ...prev, [post.id]: e.target.value }))}
-												onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleAddComment(post.id))}
+												onKeyDown={(e) => {
+													if (e.key === "Enter" && !e.shiftKey) {
+														e.preventDefault();
+														handleAddComment(post.id);
+													}
+												}}
 												placeholder="Write a comment..."
 												className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
 											/>

@@ -3,6 +3,8 @@ type D1DB = D1Database;
 
 const SESSION_COOKIE = "pickleball_session";
 const SESSION_DAYS = 30;
+const OAUTH_STATE_COOKIE = "oauth_state";
+const OAUTH_STATE_MAX_AGE = 600; // 10 minutes
 
 export type User = { id: string; email: string | null; name: string; provider: string };
 export type UserProfile = {
@@ -39,6 +41,20 @@ export function sessionCookie(token: string) {
 
 export function clearSessionCookie() {
 	return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+}
+
+export function oauthStateCookie(state: string) {
+	return `${OAUTH_STATE_COOKIE}=${encodeURIComponent(state)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${OAUTH_STATE_MAX_AGE}`;
+}
+
+export function getOAuthStateFromCookie(cookieHeader: string | null): string | null {
+	if (!cookieHeader) return null;
+	const match = cookieHeader.match(new RegExp(`${OAUTH_STATE_COOKIE}=([^;]+)`));
+	return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function clearOAuthStateCookie() {
+	return `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
 export async function getSessionUser(db: D1DB, token: string | null): Promise<User | null> {
@@ -122,41 +138,57 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
 			created_at: string;
 			author_name: string;
 		}>();
-	const posts: Post[] = [];
-	for (const row of rows.results ?? []) {
-		const likeRows = await db
-			.prepare("SELECT user_id FROM likes WHERE post_id = ?")
-			.bind(row.id)
-			.all<{ user_id: string }>();
-		const commentRows = await db
-			.prepare(
-				`SELECT c.id, c.content, c.created_at, u.name as author_name
-         FROM comments c
-         JOIN users u ON c.author_id = u.id
-         WHERE c.post_id = ?
-         ORDER BY c.created_at ASC`,
-			)
-			.bind(row.id)
-			.all<{ id: string; content: string; created_at: string; author_name: string }>();
-		posts.push({
+	const postList = rows.results ?? [];
+	if (postList.length === 0) return [];
+
+	const postIds = postList.map((r) => r.id);
+	const placeholders = postIds.map(() => "?").join(", ");
+	const likeRows = await db
+		.prepare(`SELECT post_id, user_id FROM likes WHERE post_id IN (${placeholders})`)
+		.bind(...postIds)
+		.all<{ post_id: string; user_id: string }>();
+	const commentRows = await db
+		.prepare(
+			`SELECT c.id, c.post_id, c.content, c.created_at, u.name as author_name
+       FROM comments c
+       JOIN users u ON c.author_id = u.id
+       WHERE c.post_id IN (${placeholders})
+       ORDER BY c.created_at ASC`,
+		)
+		.bind(...postIds)
+		.all<{ id: string; post_id: string; content: string; created_at: string; author_name: string }>();
+
+	const likesByPost = new Map<string, string[]>();
+	for (const r of likeRows.results ?? []) {
+		const arr = likesByPost.get(r.post_id) ?? [];
+		arr.push(r.user_id);
+		likesByPost.set(r.post_id, arr);
+	}
+	const commentsByPost = new Map<string, { id: string; authorName: string; content: string; createdAt: string }[]>();
+	for (const c of commentRows.results ?? []) {
+		const arr = commentsByPost.get(c.post_id) ?? [];
+		arr.push({
+			id: c.id,
+			authorName: c.author_name,
+			content: c.content,
+			createdAt: c.created_at,
+		});
+		commentsByPost.set(c.post_id, arr);
+	}
+
+	return postList.map((row) => {
+		const likeUserIds = likesByPost.get(row.id) ?? [];
+		return {
 			id: row.id,
 			authorId: row.author_id,
 			authorName: row.author_name,
 			content: row.content,
 			createdAt: row.created_at,
-			likes: likeRows.results?.length ?? 0,
-			likedByMe: currentUserId
-				? (likeRows.results?.some((r) => r.user_id === currentUserId) ?? false)
-				: false,
-			comments: (commentRows.results ?? []).map((c) => ({
-				id: c.id,
-				authorName: c.author_name,
-				content: c.content,
-				createdAt: c.created_at,
-			})),
-		});
-	}
-	return posts;
+			likes: likeUserIds.length,
+			likedByMe: currentUserId ? likeUserIds.includes(currentUserId) : false,
+			comments: commentsByPost.get(row.id) ?? [],
+		};
+	});
 }
 
 export async function createPost(db: D1DB, authorId: string, content: string): Promise<Post> {
@@ -265,7 +297,8 @@ export async function getProfile(db: D1DB, userId: string): Promise<UserProfile 
 			regionId: row.region_id ?? null,
 			updatedAt: row.updated_at,
 		};
-	} catch {
+	} catch (e) {
+		console.error("getProfile (fallback schema)", userId, e);
 		const row = await db
 			.prepare(
 				"SELECT user_id, bio, paddle, shoes, gear, dupr_link, updated_at FROM user_profiles WHERE user_id = ?",
@@ -883,51 +916,39 @@ export async function getBracketMatches(db: D1DB, tournamentId: string): Promise
 			next_match_id: string | null;
 			next_slot: number | null;
 		}>();
-	const out: BracketMatch[] = [];
-	for (const r of rows.results ?? []) {
-		let p1Name: string | null = null;
-		let p2Name: string | null = null;
-		let winnerName: string | null = null;
-		if (r.player1_id)
-			p1Name =
-				(
-					await db
-						.prepare("SELECT name FROM users WHERE id = ?")
-						.bind(r.player1_id)
-						.first<{ name: string }>()
-				)?.name ?? null;
-		if (r.player2_id)
-			p2Name =
-				(
-					await db
-						.prepare("SELECT name FROM users WHERE id = ?")
-						.bind(r.player2_id)
-						.first<{ name: string }>()
-				)?.name ?? null;
-		if (r.winner_id)
-			winnerName =
-				(
-					await db
-						.prepare("SELECT name FROM users WHERE id = ?")
-						.bind(r.winner_id)
-						.first<{ name: string }>()
-				)?.name ?? null;
-		out.push({
-			id: r.id,
-			tournamentId: r.tournament_id,
-			round: r.round,
-			matchOrder: r.match_order,
-			player1Id: r.player1_id,
-			player1Name: p1Name,
-			player2Id: r.player2_id,
-			player2Name: p2Name,
-			winnerId: r.winner_id,
-			winnerName,
-			nextMatchId: r.next_match_id,
-			nextSlot: r.next_slot,
-		});
+	const results = rows.results ?? [];
+	const userIds = new Set<string>();
+	for (const r of results) {
+		if (r.player1_id) userIds.add(r.player1_id);
+		if (r.player2_id) userIds.add(r.player2_id);
+		if (r.winner_id) userIds.add(r.winner_id);
 	}
-	return out;
+	const namesById = new Map<string, string>();
+	if (userIds.size > 0) {
+		const ids = [...userIds];
+		const placeholders = ids.map(() => "?").join(", ");
+		const userRows = await db
+			.prepare(`SELECT id, name FROM users WHERE id IN (${placeholders})`)
+			.bind(...ids)
+			.all<{ id: string; name: string }>();
+		for (const u of userRows.results ?? []) {
+			namesById.set(u.id, u.name);
+		}
+	}
+	return results.map((r) => ({
+		id: r.id,
+		tournamentId: r.tournament_id,
+		round: r.round,
+		matchOrder: r.match_order,
+		player1Id: r.player1_id,
+		player1Name: r.player1_id ? (namesById.get(r.player1_id) ?? null) : null,
+		player2Id: r.player2_id,
+		player2Name: r.player2_id ? (namesById.get(r.player2_id) ?? null) : null,
+		winnerId: r.winner_id,
+		winnerName: r.winner_id ? (namesById.get(r.winner_id) ?? null) : null,
+		nextMatchId: r.next_match_id,
+		nextSlot: r.next_slot,
+	}));
 }
 
 export async function setMatchWinner(
@@ -1144,7 +1165,8 @@ export async function getCourts(
 			createdBy: r.created_by,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (e) {
+		console.error("getCourts", e);
 		return [];
 	}
 }
@@ -1302,7 +1324,8 @@ export async function getPaddles(
 			description: r.description,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (e) {
+		console.error("getPaddles", e);
 		return [];
 	}
 }
@@ -1466,7 +1489,8 @@ export async function getPlaySessionsForWeek(
 			)
 			.bind(startDate, endDate)
 			.all<PlaySessionRow>();
-	} catch {
+	} catch (e) {
+		console.error("getPlaySessionsForWeek (fallback schema)", e);
 		rows = await db
 			.prepare(
 				`SELECT s.id, s.creator_id, s.region_id, s.venue, s.session_date, s.session_time, s.skill_level, s.format_type, s.event_name, s.player_min, s.player_max, s.created_at, u.name as creator_name
@@ -1505,8 +1529,8 @@ export async function getPlaySessionsForWeek(
 					.bind(r.id, currentUserId)
 					.first();
 				myWaitlist = !!onWl;
-			} catch {
-				// waitlist table may not exist yet
+			} catch (e) {
+				console.error("getPlaySessionsForWeek waitlist", r.id, e);
 			}
 		}
 		const playerMax = r.player_max ?? 999;
@@ -1640,7 +1664,8 @@ export async function createPlaySession(
 				data.recurrenceDay ?? null,
 			)
 			.run();
-	} catch {
+	} catch (e) {
+		console.error("createPlaySession (fallback schema)", e);
 		await db
 			.prepare(
 				`INSERT INTO play_sessions (id, creator_id, region_id, venue, session_date, session_time, skill_level, format_type, event_name, player_min, player_max) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1724,7 +1749,8 @@ export async function getSessionWaitlist(db: D1DB, sessionId: string): Promise<S
 			userName: r.user_name,
 			createdAt: r.created_at,
 		}));
-	} catch {
+	} catch (e) {
+		console.error("getSessionWaitlist", sessionId, e);
 		return [];
 	}
 }
@@ -1740,7 +1766,8 @@ export async function joinSessionWaitlist(
 			.bind(sessionId, userId)
 			.run();
 		return {};
-	} catch {
+	} catch (e) {
+		console.error("joinSessionWaitlist", e);
 		return { error: "Waitlist not available" };
 	}
 }
@@ -1755,7 +1782,7 @@ export async function leaveSessionWaitlist(
 			.prepare("DELETE FROM play_session_waitlist WHERE session_id = ? AND user_id = ?")
 			.bind(sessionId, userId)
 			.run();
-	} catch {
-		// table may not exist
+	} catch (e) {
+		console.error("leaveSessionWaitlist", e);
 	}
 }
