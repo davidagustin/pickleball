@@ -5,6 +5,7 @@ import type { Route } from "./+types/home";
 import {
 	getSessionToken,
 	getSessionUser,
+	requireUser,
 	getOrCreateDemoUser,
 	createSession,
 	sessionCookie,
@@ -110,10 +111,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "addPost" || intent === "like" || intent === "addComment") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const user = await getSessionUser(db, token);
-		if (!user) return { error: "Login required" };
+		const auth = await requireUser(db, request.headers.get("Cookie"));
+		if (auth.error) return { error: auth.error };
+		const user = auth.user;
 
 		if (intent === "addPost") {
 			const content = (formData.get("content") as string)?.trim();
@@ -139,10 +139,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "joinQueue" || intent === "leaveQueue") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const user = await getSessionUser(db, token);
-		if (!user) return { error: "Login required" };
+		const auth = await requireUser(db, request.headers.get("Cookie"));
+		if (auth.error) return { error: auth.error };
+		const user = auth.user;
 		const courtId = formData.get("courtId") as string;
 		if (!courtId) return { error: "Invalid court" };
 		if (intent === "joinQueue") await joinCourtQueue(db, courtId, user.id);
@@ -151,10 +150,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "makeAdmin") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const currentUser = await getSessionUser(db, token);
-		if (!currentUser) return { error: "Login required" };
+		const auth = await requireUser(db, request.headers.get("Cookie"));
+		if (auth.error) return { error: auth.error };
+		const currentUser = auth.user;
 		const courtId = formData.get("courtId") as string;
 		const targetUserId = formData.get("userId") as string;
 		if (!courtId || !targetUserId) return { error: "Invalid request" };
@@ -165,10 +163,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "addCoaching") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const user = await getSessionUser(db, token);
-		if (!user) return { error: "Login required" };
+		const auth = await requireUser(db, request.headers.get("Cookie"));
+		if (auth.error) return { error: auth.error };
+		const user = auth.user;
 		const title = (formData.get("title") as string)?.trim();
 		if (!title) return { error: "Title required" };
 		await createCoachingListing(db, user.id, {
@@ -183,10 +180,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "deleteCoaching") {
-		const cookieHeader = request.headers.get("Cookie");
-		const token = getSessionToken(cookieHeader);
-		const user = await getSessionUser(db, token);
-		if (!user) return { error: "Login required" };
+		const auth = await requireUser(db, request.headers.get("Cookie"));
+		if (auth.error) return { error: auth.error };
+		const user = auth.user;
 		const listingId = formData.get("listingId") as string;
 		if (!listingId) return { error: "Listing ID required" };
 		const result = await deleteCoachingListing(db, listingId, user.id);
