@@ -1,10 +1,8 @@
-import { useState, useEffect } from "react";
-import { Link, useLoaderData, useActionData, useFetcher } from "react-router";
-import { redirect } from "react-router";
+import { useState, useEffect, useCallback } from "react";
+import { Link, useLoaderData, redirect } from "react-router";
 import type { Route } from "./+types/home";
 import {
-	getSessionToken,
-	getSessionUser,
+	type Post,
 	requireUser,
 	getOrCreateDemoUser,
 	createSession,
@@ -17,11 +15,11 @@ import {
 	getQueuesForCourts,
 	getCodesForCourts,
 	getAdminsForCourts,
+	getMyQueueAndAdminStatus,
 	isCourtAdmin,
 	addCourtAdmin,
 	joinCourtQueue,
 	leaveCourtQueue,
-	isInQueue,
 	getCoachingListings,
 	createCoachingListing,
 	deleteCoachingListing,
@@ -55,24 +53,19 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			oauth: { google: !!context.cloudflare.env.GOOGLE_CLIENT_ID, github: !!context.cloudflare.env.GITHUB_CLIENT_ID },
 		};
 	}
-	const cookieHeader = request.headers.get("Cookie");
-	const token = getSessionToken(cookieHeader);
-	const user = await getSessionUser(db, token);
+	const user = await requireUser(db, request);
 	const posts = await getPosts(db, user?.id ?? null);
 	const users = await getUsers(db, 50);
 	const courtsFromDb = await getCourts(db, { limit: 50 });
 	const courtIds = courtsFromDb.length > 0 ? courtsFromDb.map((c) => c.id) : COURT_IDS;
-	const courtQueues = await getQueuesForCourts(db, courtIds);
-	const courtCodes = await getCodesForCourts(db, courtIds);
-	const courtAdmins = await getAdminsForCourts(db, courtIds);
-	const myInQueue: Record<string, boolean> = {};
-	const myAdminStatus: Record<string, boolean> = {};
-	if (user) {
-		for (const cid of courtIds) {
-			myInQueue[cid] = await isInQueue(db, cid, user.id);
-			myAdminStatus[cid] = await isCourtAdmin(db, cid, user.id);
-		}
-	}
+	const [courtQueues, courtCodes, courtAdmins, queueAndAdmin] = await Promise.all([
+		getQueuesForCourts(db, courtIds),
+		getCodesForCourts(db, courtIds),
+		getAdminsForCourts(db, courtIds),
+		user ? getMyQueueAndAdminStatus(db, courtIds, user.id) : Promise.resolve({ myInQueue: {} as Record<string, boolean>, myAdminStatus: {} as Record<string, boolean> }),
+	]);
+	const myInQueue = queueAndAdmin.myInQueue;
+	const myAdminStatus = queueAndAdmin.myAdminStatus;
 	const coachingListings = await getCoachingListings(db, 100);
 	const origin = new URL(request.url).origin;
 	return {
@@ -111,9 +104,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "addPost" || intent === "like" || intent === "addComment") {
-		const auth = await requireUser(db, request.headers.get("Cookie"));
-		if (auth.error) return { error: auth.error };
-		const user = auth.user;
+		const user = await requireUser(db, request);
+		if (!user) return { error: "Login required" };
 
 		if (intent === "addPost") {
 			const content = (formData.get("content") as string)?.trim();
@@ -139,9 +131,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "joinQueue" || intent === "leaveQueue") {
-		const auth = await requireUser(db, request.headers.get("Cookie"));
-		if (auth.error) return { error: auth.error };
-		const user = auth.user;
+		const user = await requireUser(db, request);
+		if (!user) return { error: "Login required" };
 		const courtId = formData.get("courtId") as string;
 		if (!courtId) return { error: "Invalid court" };
 		if (intent === "joinQueue") await joinCourtQueue(db, courtId, user.id);
@@ -150,9 +141,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "makeAdmin") {
-		const auth = await requireUser(db, request.headers.get("Cookie"));
-		if (auth.error) return { error: auth.error };
-		const currentUser = auth.user;
+		const currentUser = await requireUser(db, request);
+		if (!currentUser) return { error: "Login required" };
 		const courtId = formData.get("courtId") as string;
 		const targetUserId = formData.get("userId") as string;
 		if (!courtId || !targetUserId) return { error: "Invalid request" };
@@ -163,9 +153,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "addCoaching") {
-		const auth = await requireUser(db, request.headers.get("Cookie"));
-		if (auth.error) return { error: auth.error };
-		const user = auth.user;
+		const user = await requireUser(db, request);
+		if (!user) return { error: "Login required" };
 		const title = (formData.get("title") as string)?.trim();
 		if (!title) return { error: "Title required" };
 		await createCoachingListing(db, user.id, {
@@ -180,9 +169,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "deleteCoaching") {
-		const auth = await requireUser(db, request.headers.get("Cookie"));
-		if (auth.error) return { error: auth.error };
-		const user = auth.user;
+		const user = await requireUser(db, request);
+		if (!user) return { error: "Login required" };
 		const listingId = formData.get("listingId") as string;
 		if (!listingId) return { error: "Listing ID required" };
 		const result = await deleteCoachingListing(db, listingId, user.id);
@@ -281,12 +269,12 @@ export default function Home() {
 		await new Promise((r) => setTimeout(r, 400));
 		const post: Post = {
 			id: `post-${Date.now()}`,
-			authorId: user.email,
+			authorId: user.id,
 			authorName: user.name,
 			content: newPostContent.trim(),
 			createdAt: new Date().toISOString(),
 			likes: 0,
-			likedBy: [],
+			likedByMe: false,
 			comments: [],
 		};
 		savePosts([post, ...posts]);
@@ -301,11 +289,10 @@ export default function Home() {
 		}
 		const next = posts.map((p) => {
 			if (p.id !== postId) return p;
-			const liked = p.likedBy.includes(user.email);
 			return {
 				...p,
-				likes: liked ? p.likes - 1 : p.likes + 1,
-				likedBy: liked ? p.likedBy.filter((e) => e !== user.email) : [...p.likedBy, user.email],
+				likes: p.likedByMe ? p.likes - 1 : p.likes + 1,
+				likedByMe: !p.likedByMe,
 			};
 		});
 		savePosts(next);
@@ -535,12 +522,12 @@ export default function Home() {
 											<button
 												onClick={() => handleLike(post.id)}
 												className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-													user && post.likedBy.includes(user.email)
+													user && post.likedByMe
 														? "text-emerald-600 dark:text-emerald-400"
 														: "text-gray-500 dark:text-gray-400 hover:text-emerald-600"
 												}`}
 											>
-												<svg className="w-5 h-5" fill={user && post.likedBy.includes(user.email) ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+												<svg className="w-5 h-5" fill={user && post.likedByMe ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
 													<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
 												</svg>
 												{post.likes}
@@ -565,7 +552,12 @@ export default function Home() {
 											<input
 												value={commentInputs[post.id] ?? ""}
 												onChange={(e) => setCommentInputs((prev) => ({ ...prev, [post.id]: e.target.value }))}
-												onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleAddComment(post.id))}
+												onKeyDown={(e) => {
+													if (e.key === "Enter" && !e.shiftKey) {
+														e.preventDefault();
+														handleAddComment(post.id);
+													}
+												}}
 												placeholder="Write a comment..."
 												className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
 											/>
