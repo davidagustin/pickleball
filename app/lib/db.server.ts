@@ -56,10 +56,7 @@ export async function getSessionUser(db: D1DB, token: string | null): Promise<Us
 }
 
 /** Get current user from request cookie; returns null if not authenticated. */
-export async function requireUser(
-	db: D1DB,
-	request: Request,
-): Promise<User | null> {
+export async function requireUser(db: D1DB, request: Request): Promise<User | null> {
 	const token = getSessionToken(request.headers.get("Cookie") ?? null);
 	return getSessionUser(db, token);
 }
@@ -151,7 +148,13 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
          ORDER BY c.created_at ASC`,
 			)
 			.bind(...postIds)
-			.all<{ post_id: string; id: string; content: string; created_at: string; author_name: string }>(),
+			.all<{
+				post_id: string;
+				id: string;
+				content: string;
+				created_at: string;
+				author_name: string;
+			}>(),
 	]);
 
 	const likesByPost: Record<string, string[]> = {};
@@ -159,7 +162,10 @@ export async function getPosts(db: D1DB, currentUserId: string | null): Promise<
 		if (!likesByPost[r.post_id]) likesByPost[r.post_id] = [];
 		likesByPost[r.post_id].push(r.user_id);
 	}
-	const commentsByPost: Record<string, { id: string; content: string; created_at: string; author_name: string }[]> = {};
+	const commentsByPost: Record<
+		string,
+		{ id: string; content: string; created_at: string; author_name: string }[]
+	> = {};
 	for (const r of commentRows.results ?? []) {
 		if (!commentsByPost[r.post_id]) commentsByPost[r.post_id] = [];
 		commentsByPost[r.post_id].push({
@@ -711,11 +717,15 @@ export async function getMyQueueAndAdminStatus(
 	const placeholders = courtIds.map(() => "?").join(",");
 	const [queueRows, adminRows] = await Promise.all([
 		db
-			.prepare(`SELECT court_id FROM court_queue WHERE user_id = ? AND court_id IN (${placeholders})`)
+			.prepare(
+				`SELECT court_id FROM court_queue WHERE user_id = ? AND court_id IN (${placeholders})`,
+			)
 			.bind(userId, ...courtIds)
 			.all<{ court_id: string }>(),
 		db
-			.prepare(`SELECT court_id FROM court_admins WHERE user_id = ? AND court_id IN (${placeholders})`)
+			.prepare(
+				`SELECT court_id FROM court_admins WHERE user_id = ? AND court_id IN (${placeholders})`,
+			)
 			.bind(userId, ...courtIds)
 			.all<{ court_id: string }>(),
 	]);
@@ -975,19 +985,11 @@ export async function getBracketMatches(db: D1DB, tournamentId: string): Promise
 		round: r.round,
 		matchOrder: r.match_order,
 		player1Id: r.player1_id,
-<<<<<<< HEAD
-		player1Name: (r.player1_id && nameByUserId.get(r.player1_id)) ?? null,
+		player1Name: r.player1_id ? (nameMap.get(r.player1_id) ?? null) : null,
 		player2Id: r.player2_id,
-		player2Name: (r.player2_id && nameByUserId.get(r.player2_id)) ?? null,
+		player2Name: r.player2_id ? (nameMap.get(r.player2_id) ?? null) : null,
 		winnerId: r.winner_id,
-		winnerName: (r.winner_id && nameByUserId.get(r.winner_id)) ?? null,
-=======
-		player1Name: r.player1_id ? nameMap.get(r.player1_id) ?? null : null,
-		player2Id: r.player2_id,
-		player2Name: r.player2_id ? nameMap.get(r.player2_id) ?? null : null,
-		winnerId: r.winner_id,
-		winnerName: r.winner_id ? nameMap.get(r.winner_id) ?? null : null,
->>>>>>> origin/apply-code-review-fixes
+		winnerName: r.winner_id ? (nameMap.get(r.winner_id) ?? null) : null,
 		nextMatchId: r.next_match_id,
 		nextSlot: r.next_slot,
 	}));
@@ -1207,13 +1209,7 @@ export async function getCourts(
 			createdBy: r.created_by,
 			createdAt: r.created_at,
 		}));
-<<<<<<< HEAD
-	} catch (e) {
-		console.error("getCourts:", e);
-=======
-	} catch (err) {
-		console.error("[getCourts] query failed:", err);
->>>>>>> origin/apply-code-review-fixes
+	} catch {
 		return [];
 	}
 }
@@ -1371,13 +1367,7 @@ export async function getPaddles(
 			description: r.description,
 			createdAt: r.created_at,
 		}));
-<<<<<<< HEAD
-	} catch (e) {
-		console.error("getPaddles:", e);
-=======
-	} catch (err) {
-		console.error("[getPaddles] query failed:", err);
->>>>>>> origin/apply-code-review-fixes
+	} catch {
 		return [];
 	}
 }
@@ -1801,13 +1791,7 @@ export async function getSessionWaitlist(db: D1DB, sessionId: string): Promise<S
 			userName: r.user_name,
 			createdAt: r.created_at,
 		}));
-<<<<<<< HEAD
-	} catch (e) {
-		console.error("getSessionWaitlist:", e);
-=======
-	} catch (err) {
-		console.error("[getSessionWaitlist] query failed (table may not exist):", err);
->>>>>>> origin/apply-code-review-fixes
+	} catch {
 		return [];
 	}
 }
