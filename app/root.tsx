@@ -19,7 +19,7 @@ export const links: Route.LinksFunction = () => [
 	},
 	{
 		rel: "stylesheet",
-		href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap",
+		href: "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap",
 	},
 ];
 
@@ -53,23 +53,25 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 	if (isRouteErrorResponse(error)) {
 		message = error.status === 404 ? "404" : "Error";
 		details =
-			error.status === 404
-				? "The requested page could not be found."
-				: error.statusText || details;
+			error.status === 404 ? "The requested page could not be found." : error.statusText || details;
 	} else if (import.meta.env.DEV && error && error instanceof Error) {
 		details = error.message;
 		stack = error.stack;
 	}
 
 	return (
-		<main className="pt-16 p-4 container mx-auto">
-			<h1>{message}</h1>
-			<p>{details}</p>
-			{stack && (
-				<pre className="w-full p-4 overflow-x-auto">
-					<code>{stack}</code>
-				</pre>
-			)}
+		<main className="min-h-screen bg-[#f0f2f5] dark:bg-gray-950 pt-20 px-4 pb-12">
+			<div className="mx-auto max-w-2xl">
+				<div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-8 shadow-sm">
+					<h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{message}</h1>
+					<p className="text-gray-600 dark:text-gray-400">{details}</p>
+					{stack && (
+						<pre className="mt-6 w-full p-4 rounded-xl bg-gray-100 dark:bg-gray-900 text-sm overflow-x-auto border border-gray-200 dark:border-gray-700">
+							<code>{stack}</code>
+						</pre>
+					)}
+				</div>
+			</div>
 		</main>
 	);
 }

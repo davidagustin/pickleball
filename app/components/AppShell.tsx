@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router";
+import { NavLink } from "~/components/ui";
+import { Button } from "~/components/ui/Button";
 
 type User = { id: string; name: string; avatarUrl?: string | null };
 
@@ -174,6 +177,7 @@ function PaddlesIcon({ className }: { className?: string }) {
 export function AppShell({ children, user }: { children: React.ReactNode; user: User | null }) {
 	const location = useLocation();
 	const pathname = location.pathname;
+	const [drawerOpen, setDrawerOpen] = useState(false);
 
 	const isActive = (to: string) => {
 		if (to === "/home") return pathname === "/home" || pathname === "/";
@@ -181,64 +185,71 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
 	};
 
 	return (
-		<div className="min-h-screen bg-[#f0f2f5] dark:bg-gray-950 flex">
-			{/* Top bar — Facebook-style */}
+		<div className="min-h-screen bg-[#f0f2f5] dark:bg-gray-950 flex flex-col">
+			{/* Skip to main content — first focusable (WCAG 2.4.1) */}
+			<a href="#main-content" className="skip-link">
+				Skip to main content
+			</a>
+
 			<header className="fixed top-0 left-0 right-0 z-50 h-14 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between gap-2 px-2 sm:px-4 shadow-sm">
-				<Link to="/home" className="flex items-center shrink-0">
-					<span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-						Pickleball
-					</span>
-				</Link>
-				{/* Search + main nav — center */}
-				<div className="flex flex-1 items-center min-w-0 max-w-2xl mx-2">
-					<div className="hidden md:flex flex-1 min-w-0 max-w-xs mr-2">
-						<div className="w-full flex items-center rounded-full bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400">
-							<svg
-								className="w-4 h-4 mr-2 shrink-0"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke="currentColor"
-								aria-hidden
-							>
-								<title>Search</title>
-								<path
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									strokeWidth={2}
-									d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-								/>
-							</svg>
-							<span>Search</span>
-						</div>
-					</div>
-					<nav className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide shrink-0">
-						{NAV_LINKS.map(({ to, label, icon: Icon }) => {
-							const active = isActive(to);
-							return (
-								<Link
-									key={to}
-									to={to}
-									className={`flex flex-col sm:flex-row items-center gap-0.5 sm:gap-2 px-2 sm:px-3 py-2 rounded-lg min-w-[48px] sm:min-w-[72px] transition-colors shrink-0 ${
-										active
-											? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
-											: "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-									}`}
-									title={label}
-								>
-									<Icon className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" />
-									<span className="hidden lg:inline text-sm font-medium truncate">{label}</span>
-								</Link>
-							);
-						})}
-					</nav>
+				<div className="flex items-center gap-2 min-w-0">
+					{/* Mobile menu — show on smaller than lg (sidebar hidden) */}
+					<button
+						type="button"
+						onClick={() => setDrawerOpen(true)}
+						className="lg:hidden p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+						aria-label="Open menu"
+					>
+						<svg
+							className="w-6 h-6"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							aria-hidden
+						>
+							<title>Open menu</title>
+							<path
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								strokeWidth={2}
+								d="M4 6h16M4 12h16M4 18h16"
+							/>
+						</svg>
+					</button>
+					<Link
+						to="/home"
+						className="flex items-center shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 rounded-lg"
+					>
+						<span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+							Pickleball
+						</span>
+					</Link>
 				</div>
-				{/* Right: user menu */}
+
+				<nav
+					aria-label="Primary"
+					className="flex flex-1 items-center min-w-0 max-w-2xl mx-2 justify-center lg:justify-start"
+				>
+					<div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide shrink-0">
+						{NAV_LINKS.map(({ to, label, icon: Icon }) => (
+							<NavLink
+								key={to}
+								to={to}
+								label={label}
+								icon={<Icon className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" />}
+								isActive={isActive(to)}
+								labelHiddenOnMobile
+							/>
+						))}
+					</div>
+				</nav>
+
 				<div className="flex items-center gap-1 sm:gap-2 shrink-0">
 					{user ? (
 						<>
 							<Link
 								to={`/profile/${user.id}`}
-								className="flex items-center gap-2 px-2 py-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+								className="flex items-center gap-2 px-2 py-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
 								title={user.name}
 							>
 								{user.avatarUrl ? (
@@ -253,39 +264,111 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
 								</span>
 							</Link>
 							<form method="post" action="/auth/logout" className="inline">
-								<button
-									type="submit"
-									className="px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-								>
+								<Button type="submit" variant="ghost" size="sm">
 									Log out
-								</button>
+								</Button>
 							</form>
 						</>
 					) : (
 						<>
-							<Link
-								to="/demo"
-								className="px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-500"
-							>
-								Try demo
+							<Link to="/demo">
+								<Button variant="primary" size="sm">
+									Try demo
+								</Button>
 							</Link>
-							<Link
-								to="/home"
-								className="px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-							>
-								Log in
+							<Link to="/home">
+								<Button variant="secondary" size="sm">
+									Log in
+								</Button>
 							</Link>
 						</>
 					)}
 				</div>
 			</header>
 
-			{/* Left sidebar — Facebook-style shortcuts (desktop) */}
+			{/* Mobile drawer — full sidebar links when sidebar is hidden */}
+			{drawerOpen && (
+				<>
+					<div
+						className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
+						aria-hidden
+						onClick={() => setDrawerOpen(false)}
+					/>
+					<aside
+						className="fixed top-0 left-0 z-50 w-72 h-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shadow-xl lg:hidden flex flex-col pt-14 animate-fade-in-up"
+						aria-label="Navigation menu"
+					>
+						<button
+							type="button"
+							onClick={() => setDrawerOpen(false)}
+							className="absolute top-4 right-4 p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+							aria-label="Close menu"
+						>
+							<svg
+								className="w-5 h-5"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke="currentColor"
+								aria-hidden
+							>
+								<title>Close menu</title>
+								<path
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									strokeWidth={2}
+									d="M6 18L18 6M6 6l12 12"
+								/>
+							</svg>
+						</button>
+						{user && (
+							<Link
+								to={`/profile/${user.id}`}
+								onClick={() => setDrawerOpen(false)}
+								className="flex items-center gap-3 px-4 py-3 mx-2 mt-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+							>
+								{user.avatarUrl ? (
+									<img src={user.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
+								) : (
+									<div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold">
+										{user.name.slice(0, 1).toUpperCase()}
+									</div>
+								)}
+								<span className="font-medium text-gray-900 dark:text-white truncate">
+									{user.name}
+								</span>
+							</Link>
+						)}
+						<nav className="mt-2 overflow-y-auto flex-1 p-2 space-y-0.5" aria-label="Secondary">
+							{SIDEBAR_LINKS.map(({ to, label, icon: Icon }) => {
+								const active = isActive(to);
+								return (
+									<Link
+										key={to}
+										to={to}
+										onClick={() => setDrawerOpen(false)}
+										className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+											active
+												? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
+												: "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+										}`}
+										aria-current={active ? "page" : undefined}
+									>
+										<Icon className="w-6 h-6 shrink-0" />
+										<span className="font-medium">{label}</span>
+									</Link>
+								);
+							})}
+						</nav>
+					</aside>
+				</>
+			)}
+
+			{/* Desktop sidebar */}
 			<aside className="hidden lg:flex flex-col fixed left-0 top-14 w-60 h-[calc(100vh-3.5rem)] bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 overflow-y-auto pt-4 pb-6">
-				{user ? (
+				{user && (
 					<Link
 						to={`/profile/${user.id}`}
-						className="flex items-center gap-3 px-3 py-2 mx-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+						className="flex items-center gap-3 px-3 py-2 mx-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
 					>
 						{user.avatarUrl ? (
 							<img src={user.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
@@ -296,19 +379,20 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
 						)}
 						<span className="font-medium text-gray-900 dark:text-white truncate">{user.name}</span>
 					</Link>
-				) : null}
-				<nav className="mt-2 space-y-0.5">
+				)}
+				<nav className="mt-2 space-y-0.5" aria-label="Secondary">
 					{SIDEBAR_LINKS.map(({ to, label, icon: Icon }) => {
 						const active = isActive(to);
 						return (
 							<Link
 								key={to}
 								to={to}
-								className={`flex items-center gap-3 px-3 py-2.5 mx-2 rounded-lg transition-colors ${
+								className={`flex items-center gap-3 px-3 py-2.5 mx-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
 									active
 										? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
 										: "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
 								}`}
+								aria-current={active ? "page" : undefined}
 							>
 								<Icon className="w-6 h-6 shrink-0" />
 								<span className="font-medium">{label}</span>
@@ -318,9 +402,38 @@ export function AppShell({ children, user }: { children: React.ReactNode; user: 
 				</nav>
 			</aside>
 
-			{/* Main content — offset by top bar and optional sidebar */}
-			<main className="flex-1 pt-14 lg:pl-60 min-h-screen">
-				<div className="p-4 sm:p-6">{children}</div>
+			<main id="main-content" tabIndex={-1} className="flex-1 pt-14 lg:pl-60 min-h-screen">
+				<div className="p-4 sm:p-6 flex flex-col min-h-[calc(100vh-3.5rem)]">
+					{children}
+					{/* Global footer — single source of truth */}
+					<footer className="mt-auto border-t border-gray-200 dark:border-gray-800 py-6">
+						<div className="mx-auto max-w-4xl flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+							<span className="font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+								Pickleball
+							</span>
+							<div className="flex gap-6">
+								<a
+									href="/#privacy"
+									className="hover:text-emerald-600 dark:hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded"
+								>
+									Privacy
+								</a>
+								<a
+									href="/#terms"
+									className="hover:text-emerald-600 dark:hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded"
+								>
+									Terms
+								</a>
+								<a
+									href="/#contact"
+									className="hover:text-emerald-600 dark:hover:text-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded"
+								>
+									Contact
+								</a>
+							</div>
+						</div>
+					</footer>
+				</div>
 			</main>
 		</div>
 	);
